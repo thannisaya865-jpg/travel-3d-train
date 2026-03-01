@@ -252,6 +252,10 @@
             <div id="mqtt-status" style="width: 12px; height: 12px; border-radius: 50%; background: #ef4444;"></div>
             <h2 style="font-weight: 900; letter-spacing: 1px;">ORACLE PET RACE</h2>
         </div>
+        <div id="champ-container"
+            style="color: #fbbf24; font-weight: 700; background: rgba(251, 191, 36, 0.1); padding: 5px 15px; border-radius: 99px; border: 1px solid rgba(251, 191, 36, 0.3);">
+            👑 เจ้าแห่งสนาม: <span id="current-champ">กำลังโหลด...</span>
+        </div>
         <div id="hof-container" style="color: #cbd5e1;">ล่าสุด: <span id="hof-winners">---</span></div>
     </div>
 
@@ -260,11 +264,11 @@
         <!-- Lanes will be generated here -->
     </div>
 
-    <div class="instructions">กด [ SPACE BAR ] รัวๆ เพื่อวิ่ง! 🚀</div>
+    <div class="instructions">กด [ SPACE BAR ] รัวๆ เพื่อวิ่งแข่งกับ AI! 🚀</div>
 
     <div id="win-overlay" class="win-overlay">
         <div class="win-card">
-            <h1 style="font-size: 4rem; margin-bottom: 10px;">🎉 คุณชนะแล้ว!</h1>
+            <h1 style="font-size: 4rem; margin-bottom: 10px;">🎉 ชนะแล้ว!</h1>
             <p id="winner-msg" style="font-size: 1.5rem; margin-bottom: 30px;"></p>
             <button class="start-btn" style="background: white; color: var(--accent);"
                 onclick="location.reload()">เล่นอีกรอบ</button>
@@ -286,6 +290,7 @@
         };
 
         let players = {};
+        let aiBots = [];
         let client;
 
         function selectEmoji(emoji, el) {
@@ -301,7 +306,42 @@
             myData.name = name;
             document.getElementById('selection-screen').style.display = 'none';
 
+            spawnBots();
             initMQTT();
+            startBotLogic();
+        }
+
+        function spawnBots() {
+            const botNames = ['AI_Tester_1', 'AI_Tester_2', 'AI_Tester_3'];
+            const botEmojis = ['🏎️', '🦄', '🦖'];
+            aiBots = botNames.map((name, i) => ({
+                id: 'Bot_' + i,
+                name: name,
+                emoji: botEmojis[i],
+                dist: 0,
+                win: false,
+                isBot: true,
+                ts: Date.now()
+            }));
+        }
+
+        function startBotLogic() {
+            setInterval(() => {
+                aiBots.forEach(bot => {
+                    if (!bot.win && !myData.win) {
+                        // Random movement for bots
+                        if (Math.random() > 0.6) {
+                            bot.dist += Math.floor(Math.random() * 3) + 1;
+                            if (bot.dist >= 90) {
+                                bot.dist = 90;
+                                bot.win = true;
+                            }
+                            bot.ts = Date.now();
+                        }
+                    }
+                });
+                render();
+            }, 300);
         }
 
         function initMQTT() {
@@ -311,6 +351,7 @@
                 document.getElementById('mqtt-status').style.background = '#10b981';
                 client.subscribe(`${BASE_TOPIC}/players/+`);
                 client.subscribe(`${BASE_TOPIC}/hof`);
+                client.subscribe(`${BASE_TOPIC}/champ`);
                 sync();
             });
 
@@ -318,6 +359,8 @@
                 const data = JSON.parse(msg.toString());
                 if (topic === `${BASE_TOPIC}/hof`) {
                     document.getElementById('hof-winners').innerText = data.join(' • ');
+                } else if (topic === `${BASE_TOPIC}/champ`) {
+                    document.getElementById('current-champ').innerText = data.name || "ยังไม่มี";
                 } else {
                     players[data.id] = data;
                     render();
@@ -349,19 +392,29 @@
             document.getElementById('winner-msg').innerText = `${myData.emoji} ${myData.name} เข้าเส้นชัยเป็นที่ 1!`;
 
             // Retain Winner in HOF
-            // In simple mode, we just publish our name. Real HOF needs a list merge.
             client.publish(`${BASE_TOPIC}/hof`, JSON.stringify([`${myData.emoji} ${myData.name}`]), { retain: true });
+
+            // Update All-time Champion
+            client.publish(`${BASE_TOPIC}/champ`, JSON.stringify({ name: `${myData.emoji} ${myData.name}`, ts: Date.now() }), { retain: true });
         }
 
         function render() {
             const field = document.getElementById('race-field');
-            // Cleanup stale players (not seen for 10s)
             const now = Date.now();
+
+            // Cleanup stale players (not seen for 10s)
             Object.keys(players).forEach(id => {
                 if (now - players[id].ts > 10000) delete players[id];
             });
 
-            const all = [myData, ...Object.values(players).filter(p => p.id !== CLIENT_ID)];
+            // Combine all: Me, Bots, and other Players
+            const all = [
+                myData,
+                ...aiBots,
+                ...Object.values(players).filter(p => p.id !== CLIENT_ID)
+            ];
+
+            // Sort by distance to show rank (though they are in lanes)
             field.innerHTML = '<div class="finish-line"></div>';
 
             all.forEach(p => {
@@ -370,7 +423,7 @@
                 lane.innerHTML = `
                     <div class="pet" style="left: ${p.dist}%">
                         ${p.emoji}
-                        <div class="pet-name">${p.name}</div>
+                        <div class="pet-name">${p.name} ${p.isBot ? '(AI)' : ''}</div>
                     </div>
                 `;
                 field.appendChild(lane);
