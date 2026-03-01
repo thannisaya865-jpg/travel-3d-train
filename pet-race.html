@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oracle Pet Race | สนามแข่งสัตว์เลี้ยง</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #818cf8;
+            --accent: #f43f5e;
+            --dark-bg: #0f172a;
+            --glass: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Prompt', sans-serif;
+            background-color: var(--dark-bg);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: radial-gradient(circle at 50% 50%, #1e1b4b 0%, #0f172a 100%);
+        }
+
+        /* Selection Screen */
+        #selection-screen {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(20px);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .selection-box {
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            padding: 40px;
+            border-radius: 32px;
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+        }
+
+        .emoji-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin: 30px 0;
+        }
+
+        .emoji-item {
+            font-size: 3rem;
+            cursor: pointer;
+            padding: 10px;
+            border-radius: 16px;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+
+        .emoji-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: scale(1.1);
+        }
+
+        .emoji-item.selected {
+            border-color: var(--primary);
+            background: rgba(129, 140, 248, 0.2);
+        }
+
+        input {
+            width: 100%;
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid var(--glass-border);
+            background: rgba(0, 0, 0, 0.3);
+            color: white;
+            font-size: 1.1rem;
+            margin-bottom: 20px;
+            text-align: center;
+            font-family: 'Prompt', sans-serif;
+        }
+
+        .start-btn {
+            background: linear-gradient(to right, var(--primary), #a855f7);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 99px;
+            font-weight: 700;
+            font-size: 1.2rem;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .start-btn:hover {
+            transform: scale(1.05);
+        }
+
+        /* Racing Field */
+        #race-field {
+            flex: 1;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            position: relative;
+        }
+
+        .lane {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.03);
+            border-bottom: 2px dashed rgba(255, 255, 255, 0.1);
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .finish-line {
+            position: absolute;
+            right: 120px;
+            top: 0;
+            bottom: 0;
+            width: 20px;
+            background: repeating-linear-gradient(0deg, #fff, #fff 10px, #000 10px, #000 20px);
+            opacity: 0.3;
+        }
+
+        .pet {
+            position: absolute;
+            font-size: 4rem;
+            transition: left 0.1s linear;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .pet-name {
+            font-size: 0.9rem;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-top: -10px;
+            white-space: nowrap;
+        }
+
+        /* Top Bar */
+        .top-bar {
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--accent);
+            padding: 10px 30px;
+            border-radius: 99px;
+            font-weight: 700;
+            animation: bounce 2s infinite;
+        }
+
+        @keyframes bounce {
+
+            0%,
+            100% {
+                transform: translate(-50%, 0);
+            }
+
+            50% {
+                transform: translate(-50%, -10px);
+            }
+        }
+
+        .win-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            text-align: center;
+        }
+
+        .win-card {
+            background: var(--accent);
+            padding: 60px;
+            border-radius: 40px;
+            box-shadow: 0 0 100px rgba(244, 63, 94, 0.5);
+        }
+
+        .hof-list {
+            margin-top: 20px;
+            font-size: 1.2rem;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="selection-screen">
+        <div class="selection-box">
+            <h1 style="margin-bottom: 10px;">🏆 Oracle Pet Race</h1>
+            <p style="color: #94a3b8;">เลือกสัตว์เลี้ยงและตั้งชื่อเพื่อเริ่มแข่ง</p>
+
+            <div class="emoji-grid" id="emoji-picker">
+                <div class="emoji-item" onclick="selectEmoji('🐢', this)">🐢</div>
+                <div class="emoji-item" onclick="selectEmoji('🐰', this)">🐰</div>
+                <div class="emoji-item" onclick="selectEmoji('🐎', this)">🐎</div>
+                <div class="emoji-item" onclick="selectEmoji('🏎️', this)">🏎️</div>
+                <div class="emoji-item" onclick="selectEmoji('🦄', this)">🦄</div>
+                <div class="emoji-item" onclick="selectEmoji('🦖', this)">🦖</div>
+                <div class="emoji-item" onclick="selectEmoji('🐥', this)">🐥</div>
+                <div class="emoji-item" onclick="selectEmoji('🐕', this)">🐕</div>
+            </div>
+
+            <input type="text" id="name-input" placeholder="พิมพ์ชื่อของคุณ..." maxlength="12">
+            <button class="start-btn" onclick="startGame()">ลงสนามแข่ง! 🏁</button>
+        </div>
+    </div>
+
+    <div class="top-bar">
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <div id="mqtt-status" style="width: 12px; height: 12px; border-radius: 50%; background: #ef4444;"></div>
+            <h2 style="font-weight: 900; letter-spacing: 1px;">ORACLE PET RACE</h2>
+        </div>
+        <div id="hof-container" style="color: #cbd5e1;">ล่าสุด: <span id="hof-winners">---</span></div>
+    </div>
+
+    <div id="race-field">
+        <div class="finish-line"></div>
+        <!-- Lanes will be generated here -->
+    </div>
+
+    <div class="instructions">กด [ SPACE BAR ] รัวๆ เพื่อวิ่ง! 🚀</div>
+
+    <div id="win-overlay" class="win-overlay">
+        <div class="win-card">
+            <h1 style="font-size: 4rem; margin-bottom: 10px;">🎉 คุณชนะแล้ว!</h1>
+            <p id="winner-msg" style="font-size: 1.5rem; margin-bottom: 30px;"></p>
+            <button class="start-btn" style="background: white; color: var(--accent);"
+                onclick="location.reload()">เล่นอีกรอบ</button>
+        </div>
+    </div>
+
+    <script>
+        const BROKER_URL = 'wss://dustboy-wss-bridge.laris.workers.dev/mqtt';
+        const BASE_TOPIC = 'nara/pets/v1';
+        let CLIENT_ID = 'Player_' + Math.floor(Math.random() * 10000);
+
+        let myData = {
+            id: CLIENT_ID,
+            name: '',
+            emoji: '🐢',
+            dist: 0,
+            win: false,
+            ts: Date.now()
+        };
+
+        let players = {};
+        let client;
+
+        function selectEmoji(emoji, el) {
+            document.querySelectorAll('.emoji-item').forEach(i => i.classList.remove('selected'));
+            el.classList.add('selected');
+            myData.emoji = emoji;
+        }
+
+        function startGame() {
+            const name = document.getElementById('name-input').value.trim();
+            if (!name) return alert('กรุณาใส่ชื่อของคุณก่อนครับ');
+
+            myData.name = name;
+            document.getElementById('selection-screen').style.display = 'none';
+
+            initMQTT();
+        }
+
+        function initMQTT() {
+            client = mqtt.connect(BROKER_URL);
+
+            client.on('connect', () => {
+                document.getElementById('mqtt-status').style.background = '#10b981';
+                client.subscribe(`${BASE_TOPIC}/players/+`);
+                client.subscribe(`${BASE_TOPIC}/hof`);
+                sync();
+            });
+
+            client.on('message', (topic, msg) => {
+                const data = JSON.parse(msg.toString());
+                if (topic === `${BASE_TOPIC}/hof`) {
+                    document.getElementById('hof-winners').innerText = data.join(' • ');
+                } else {
+                    players[data.id] = data;
+                    render();
+                }
+            });
+        }
+
+        function sync() {
+            myData.ts = Date.now();
+            client.publish(`${BASE_TOPIC}/players/${CLIENT_ID}`, JSON.stringify(myData));
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && !myData.win) {
+                e.preventDefault();
+                myData.dist += 2;
+                if (myData.dist >= 90) {
+                    myData.dist = 90;
+                    myData.win = true;
+                    showWin();
+                }
+                sync();
+                render();
+            }
+        });
+
+        function showWin() {
+            document.getElementById('win-overlay').style.display = 'flex';
+            document.getElementById('winner-msg').innerText = `${myData.emoji} ${myData.name} เข้าเส้นชัยเป็นที่ 1!`;
+
+            // Retain Winner in HOF
+            // In simple mode, we just publish our name. Real HOF needs a list merge.
+            client.publish(`${BASE_TOPIC}/hof`, JSON.stringify([`${myData.emoji} ${myData.name}`]), { retain: true });
+        }
+
+        function render() {
+            const field = document.getElementById('race-field');
+            // Cleanup stale players (not seen for 10s)
+            const now = Date.now();
+            Object.keys(players).forEach(id => {
+                if (now - players[id].ts > 10000) delete players[id];
+            });
+
+            const all = [myData, ...Object.values(players).filter(p => p.id !== CLIENT_ID)];
+            field.innerHTML = '<div class="finish-line"></div>';
+
+            all.forEach(p => {
+                const lane = document.createElement('div');
+                lane.className = 'lane';
+                lane.innerHTML = `
+                    <div class="pet" style="left: ${p.dist}%">
+                        ${p.emoji}
+                        <div class="pet-name">${p.name}</div>
+                    </div>
+                `;
+                field.appendChild(lane);
+            });
+        }
+
+        // Auto sync every 5s to stay alive
+        setInterval(() => { if (client && client.connected) sync(); }, 5000);
+    </script>
+</body>
+
+</html>
