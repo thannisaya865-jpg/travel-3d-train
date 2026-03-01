@@ -279,7 +279,7 @@
 
     <script>
         const BROKER_URL = 'wss://dustboy-wss-bridge.laris.workers.dev/mqtt';
-        const BASE_TOPIC = 'nara/pets/v2'; // Bump version to clear old bot data
+        const BASE_TOPIC = 'nara/pets/v3'; // Bump version for fresh data
         let CLIENT_ID = 'Player_' + Math.floor(Math.random() * 10000);
 
         let myData = {
@@ -292,6 +292,7 @@
         };
 
         let players = {};
+        let aiBots = [];
         let client;
 
         function selectEmoji(emoji, el) {
@@ -307,7 +308,45 @@
             myData.name = name;
             document.getElementById('selection-screen').style.display = 'none';
 
+            spawnBots();
             initMQTT();
+            startBotLogic();
+        }
+
+        function spawnBots() {
+            const botNames = ['AI_Tester_1', 'AI_Tester_2', 'AI_Tester_3', 'AI_Tester_4', 'AI_Tester_5'];
+            const botEmojis = ['🏎️', '🦄', '🦖', '🐎', '🐰'];
+            aiBots = botNames.map((name, i) => ({
+                id: 'Bot_' + i,
+                name: name,
+                emoji: botEmojis[i],
+                dist: 0,
+                win: false,
+                isBot: true,
+                ts: Date.now()
+            }));
+        }
+
+        function startBotLogic() {
+            setInterval(() => {
+                if (myData.win) return;
+
+                aiBots.forEach(bot => {
+                    if (!bot.win) {
+                        // Random movement logic: Bots have different speeds
+                        const chance = 0.5 + (Math.random() * 0.4);
+                        if (Math.random() > chance) {
+                            bot.dist += (Math.random() * 2) + 0.5;
+                            if (bot.dist >= 90) {
+                                bot.dist = 90;
+                                bot.win = true;
+                            }
+                            bot.ts = Date.now();
+                        }
+                    }
+                });
+                render();
+            }, 200);
         }
 
         function initMQTT() {
@@ -325,7 +364,7 @@
                     const data = JSON.parse(msg.toString());
                     if (topic === `${BASE_TOPIC}/hof`) {
                         updateHOF(data);
-                    } else {
+                    } else if (data.id !== CLIENT_ID) {
                         players[data.id] = data;
                         render();
                     }
@@ -341,7 +380,7 @@
         window.addEventListener('keydown', (e) => {
             if (e.code === 'Space' && !myData.win && document.getElementById('selection-screen').style.display === 'none') {
                 e.preventDefault();
-                myData.dist += 2.5; // Slightly faster feel
+                myData.dist += 2.5;
                 if (myData.dist >= 90) {
                     myData.dist = 90;
                     myData.win = true;
@@ -368,18 +407,24 @@
             const field = document.getElementById('race-field');
             const now = Date.now();
 
-            // Cleanup stale players (not seen for 10s)
+            // Cleanup stale players
             Object.keys(players).forEach(id => {
                 if (now - players[id].ts > 10000) delete players[id];
             });
 
-            // Combine and Sort for Ranking
-            const all = [myData, ...Object.values(players).filter(p => p.id !== CLIENT_ID)];
+            // Combine Me + Bots + Other Real Players
+            const all = [
+                myData,
+                ...aiBots,
+                ...Object.values(players)
+            ];
+
+            // Sort by distance for Rank
             const sorted = [...all].sort((a, b) => b.dist - a.dist);
 
-            // Update Ranking Display
-            const rankHtml = sorted.slice(0, 3).map((p, i) =>
-                `<span style="margin-right: 15px;">#${i + 1} ${p.emoji} ${p.name} (${Math.floor(p.dist)}%)</span>`
+            // Update Top Bar Ranking (Show top 6)
+            const rankHtml = sorted.slice(0, 6).map((p, i) =>
+                `<span style="margin-right: 15px; color: ${p.id === CLIENT_ID ? 'yellow' : 'white'}">#${i + 1} ${p.emoji} ${p.name.split('_').pop()} (${Math.floor(p.dist)}%)</span>`
             ).join('');
             document.getElementById('rank-display').innerHTML = rankHtml;
 
@@ -391,7 +436,9 @@
                 lane.innerHTML = `
                     <div class="pet" style="left: ${p.dist}%">
                         ${p.emoji}
-                        <div class="pet-name">${p.name}</div>
+                        <div class="pet-name" style="${p.id === CLIENT_ID ? 'border: 1px solid yellow;' : ''}">
+                            ${p.name} ${p.isBot ? '(AI)' : ''}
+                        </div>
                     </div>
                 `;
                 field.appendChild(lane);
