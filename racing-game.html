@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oracle Sprint | Real-time MQTT Race</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #818cf8;
+            --accent: #f43f5e;
+            --dark-bg: #020617;
+            --glass: rgba(15, 23, 42, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --track-color: #1e293b;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Prompt', sans-serif;
+            background-color: var(--dark-bg);
+            color: white;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Racing Track */
+        #game-container {
+            flex: 1;
+            position: relative;
+            background: linear-gradient(to bottom, #0f172a, #020617);
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .track {
+            height: 80px;
+            background: var(--track-color);
+            margin: 15px 0;
+            border-radius: 40px;
+            position: relative;
+            border: 2px solid var(--glass-border);
+            box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
+        }
+
+        .finish-line {
+            position: absolute;
+            right: 100px;
+            top: 0;
+            bottom: 0;
+            width: 10px;
+            background: repeating-linear-gradient(45deg, #fff, #fff 10px, #000 10px, #000 20px);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+        }
+
+        .racer {
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 60px;
+            height: 60px;
+            background: var(--primary);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            box-shadow: 0 0 20px var(--primary);
+            transition: left 0.1s linear;
+            z-index: 10;
+        }
+
+        .racer.self {
+            background: var(--accent);
+            box-shadow: 0 0 25px var(--accent);
+            border: 3px solid white;
+        }
+
+        .racer-name {
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.8rem;
+            white-space: nowrap;
+            background: var(--glass);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        /* UI Overlays */
+        .overlay {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+        }
+
+        .glass-panel {
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            padding: 20px;
+            border-radius: 16px;
+        }
+
+        .leaderboard {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 250px;
+        }
+
+        .hall-of-fame {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 500px;
+            text-align: center;
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .connected {
+            background: #10b981;
+        }
+
+        .disconnected {
+            background: #ef4444;
+        }
+
+        /* Instructions */
+        .instructions {
+            position: absolute;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.5;
+                transform: translateX(-50%) scale(1);
+            }
+
+            50% {
+                opacity: 1;
+                transform: translateX(-50%) scale(1.1);
+            }
+
+            100% {
+                opacity: 0.5;
+                transform: translateX(-50%) scale(1);
+            }
+        }
+
+        h2 {
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        ol,
+        ul {
+            list-style: none;
+        }
+
+        .win-notif {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--accent);
+            padding: 40px 80px;
+            border-radius: 24px;
+            font-size: 3rem;
+            font-weight: 900;
+            display: none;
+            z-index: 1000;
+            box-shadow: 0 0 100px rgba(244, 63, 94, 0.5);
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="overlay glass-panel">
+        <h2><span id="mqtt-status" class="status-dot disconnected"></span> Oracle Sprint</h2>
+        <p style="color: #94a3b8; font-size: 0.9rem;">Player ID: <span id="player-id" style="color: white;">---</span>
+        </p>
+        <div style="margin-top: 10px;">
+            <button onclick="resetGame()" class="glass-panel"
+                style="padding: 5px 15px; border-radius: 8px; cursor: pointer; color: white;">Restart</button>
+        </div>
+    </div>
+
+    <div class="leaderboard glass-panel">
+        <h2><i class="fas fa-trophy"></i> Live Rank</h2>
+        <ul id="rank-list"></ul>
+    </div>
+
+    <div id="game-container">
+        <!-- Tracks will be generated here -->
+        <div class="instructions">PRESS [ SPACE ] TO SPRINT! 🚀</div>
+    </div>
+
+    <div class="hall-of-fame glass-panel">
+        <h2><i class="fas fa-crown" style="color: gold;"></i> Hall of Fame (Last Winners)</h2>
+        <div id="hof-list" style="display: flex; justify-content: space-around; font-weight: 700;">---</div>
+    </div>
+
+    <div id="win-screen" class="win-notif">
+        YOU WIN! 🎉
+        <div style="font-size: 1rem; margin-top: 20px;">Press Restart to play again</div>
+    </div>
+
+    <script>
+        const BROKER_URL = 'wss://dustboy-wss-bridge.laris.workers.dev/mqtt';
+        const BASE_TOPIC = 'nara/racing/v1';
+        const PLAYER_ID = 'Player_' + Math.floor(Math.random() * 9000 + 1000);
+        document.getElementById('player-id').innerText = PLAYER_ID;
+
+        const client = mqtt.connect(BROKER_URL, {
+            clientId: PLAYER_ID,
+            clean: true
+        });
+
+        let gameState = {
+            self: { id: PLAYER_ID, pos: 0, finished: false },
+            others: {},
+            winners: []
+        };
+
+        const WIN_DISTANCE = 90; // percentage
+        const MOVE_STEP = 2; // Move 2% per click
+
+        client.on('connect', () => {
+            document.getElementById('mqtt-status').className = 'status-dot connected';
+            client.subscribe(`${BASE_TOPIC}/players/+`);
+            client.subscribe(`${BASE_TOPIC}/hall-of-fame`);
+
+            // Initial publish
+            publishPos();
+        });
+
+        client.on('message', (topic, message) => {
+            const payload = JSON.parse(message.toString());
+
+            if (topic === `${BASE_TOPIC}/hall-of-fame`) {
+                updateHOF(payload);
+            } else if (topic.startsWith(`${BASE_TOPIC}/players/`)) {
+                if (payload.id !== PLAYER_ID) {
+                    gameState.others[payload.id] = payload;
+                }
+            }
+            render();
+        });
+
+        function publishPos() {
+            client.publish(`${BASE_TOPIC}/players/${PLAYER_ID}`, JSON.stringify(gameState.self));
+        }
+
+        function updateHOF(winners) {
+            const list = document.getElementById('hof-list');
+            list.innerHTML = winners.map(w => `<span>${w}</span>`).join(' • ');
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && !gameState.self.finished) {
+                e.preventDefault();
+                gameState.self.pos += MOVE_STEP;
+
+                if (gameState.self.pos >= WIN_DISTANCE) {
+                    gameState.self.pos = WIN_DISTANCE;
+                    gameState.self.finished = true;
+                    declareWinner();
+                }
+
+                publishPos();
+                render();
+            }
+        });
+
+        function declareWinner() {
+            document.getElementById('win-screen').style.display = 'block';
+
+            // Fetch current HOF, add self, and re-publish with retain
+            // Note: Since we don't have a backend, we fetch the retained message first
+            // For now, let's just push our name to a list
+            let newHOF = [PLAYER_ID];
+            // In a real scenario, we'd merge with existing data
+            client.publish(`${BASE_TOPIC}/hall-of-fame`, JSON.stringify(newHOF), { retain: true });
+        }
+
+        function resetGame() {
+            gameState.self.pos = 0;
+            gameState.self.finished = false;
+            document.getElementById('win-screen').style.display = 'none';
+            publishPos();
+            render();
+        }
+
+        function render() {
+            const container = document.getElementById('game-container');
+            // Keep instructions
+            container.innerHTML = '<div class="instructions">PRESS [ SPACE ] TO SPRINT! 🚀</div>';
+
+            const allPlayers = [gameState.self, ...Object.values(gameState.others)];
+
+            allPlayers.forEach(p => {
+                const track = document.createElement('div');
+                track.className = 'track';
+                track.innerHTML = `
+                    <div class="finish-line"></div>
+                    <div class="racer ${p.id === PLAYER_ID ? 'self' : ''}" style="left: calc(${p.pos}% - 30px)">
+                        <i class="fas fa-user-astronaut"></i>
+                        <div class="racer-name">${p.id}</div>
+                    </div>
+                `;
+                container.appendChild(track);
+            });
+
+            // Update leaderboard
+            const sorted = allPlayers.sort((a, b) => b.pos - a.pos);
+            document.getElementById('rank-list').innerHTML = sorted.map((p, i) => `
+                <li style="margin-bottom: 8px; display: flex; justify-content: space-between;">
+                    <span>${i + 1}. ${p.id}</span>
+                    <span style="color: var(--primary)">${p.pos}%</span>
+                </li>
+            `).join('');
+        }
+
+        // Cleanup stale players (simple version: players not seen for 30s)
+        setInterval(() => {
+            const now = Date.now();
+            // This would require lastSeen timestamps in payload
+        }, 5000);
+    </script>
+</body>
+
+</html>

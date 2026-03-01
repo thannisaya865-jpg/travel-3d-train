@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQTT Web Client - Dustboy</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            margin: 20px;
+        }
+
+        h1 {
+            color: #569cd6;
+        }
+
+        .status {
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        .connected {
+            background-color: #0b6623;
+            color: white;
+        }
+
+        .disconnected {
+            background-color: #8b0000;
+            color: white;
+        }
+
+        #messages {
+            background-color: #2d2d2d;
+            padding: 15px;
+            border-radius: 5px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em;
+            border: 1px solid #444;
+        }
+
+        .msg-time {
+            color: #569cd6;
+        }
+
+        .msg-topic {
+            color: #ce9178;
+        }
+
+        .msg-payload {
+            color: #4ec9b0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>📡 ดักจับข้อมูล MQTT (Dustboy)</h1>
+    <div id="status" class="status disconnected">สถานะ: กำลังรอการเชื่อมต่อ...</div>
+
+    <h3>ข้อมูลที่ได้รับ (Topic: DUSTBOY/+/+/+/status)</h3>
+    <div id="messages"></div>
+
+    <script>
+        const brokerUrl = 'wss://dustboy-wss-bridge.laris.workers.dev/mqtt';
+        const topic = 'DUSTBOY/+/+/+/status';
+        const statusEl = document.getElementById('status');
+        const messagesEl = document.getElementById('messages');
+
+        // เชื่อมต่อ MQTT ผ่าน WebSocket
+        statusEl.innerText = "สถานะ: กำลังพยายามเชื่อมต่อ...";
+        const client = mqtt.connect(brokerUrl);
+
+        client.on('connect', function () {
+            statusEl.innerText = "สถานะ: เชื่อมต่อสำเร็จ! ✅";
+            statusEl.className = "status connected";
+
+            // เมื่อเชื่อมต่อสำเร็จ ให้ทำการ Subscribe
+            client.subscribe(topic, function (err) {
+                if (!err) {
+                    addMessage("System", "Subscribed to " + topic);
+                }
+            });
+        });
+
+        client.on('message', function (msgTopic, message) {
+            // เมื่อมีข้อความเข้ามา
+            addMessage(msgTopic, message.toString());
+        });
+
+        client.on('error', function (error) {
+            statusEl.innerText = "สถานะ: เกิดข้อผิดพลาด ❌";
+            statusEl.className = "status disconnected";
+            addMessage("Error", error.message);
+        });
+
+        function addMessage(msgTopic, payload) {
+            const div = document.createElement('div');
+            const time = new Date().toLocaleTimeString('th-TH');
+
+            div.innerHTML = `<span class="msg-time">[${time}]</span> <span class="msg-topic">${msgTopic}</span> <br> <span class="msg-payload">${payload}</span><hr style="border-top:1px dashed #444; margin:5px 0;">`;
+
+            messagesEl.prepend(div); // เอาข้อความใหม่ไว้บนสุด
+        }
+    </script>
+
+</body>
+
+</html>

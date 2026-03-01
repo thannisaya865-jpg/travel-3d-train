@@ -1,0 +1,369 @@
+﻿<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DustBoy Live — MQTT Workshop</title>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Noto Sans Thai', -apple-system, sans-serif; background: #0d1117; color: #e6edf3; }
+  .container { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+  h1 { font-size: 1.5rem; color: #58a6ff; margin-bottom: 4px; }
+  .sub { color: #8b949e; font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+  /* Status bar */
+  .status-bar {
+    display: flex; align-items: center; gap: 8px;
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 1rem; font-size: 0.85rem;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .dot.on { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
+  .dot.off { background: #f87171; }
+  .dot.wait { background: #f0883e; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 50% { opacity: 0.4; } }
+
+  /* Sensor cards */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-bottom: 1.5rem; }
+  .card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+    padding: 14px; transition: border-color 0.3s;
+  }
+  .card.flash { border-color: #3fb950; }
+  .card-name { font-size: 0.9rem; font-weight: 600; color: #e6edf3; margin-bottom: 8px; }
+  .card-name .tag { font-size: 0.65rem; padding: 1px 6px; border-radius: 4px; background: #1f3a5f; color: #58a6ff; margin-left: 6px; vertical-align: middle; }
+  .pm-row { display: flex; gap: 16px; margin-bottom: 8px; }
+  .pm-box { text-align: center; flex: 1; }
+  .pm-num { font-size: 2rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; line-height: 1.1; }
+  .pm-label { font-size: 0.7rem; color: #8b949e; }
+  .env { font-size: 0.75rem; color: #8b949e; display: flex; gap: 10px; }
+  .card-time { font-size: 0.65rem; color: #484f58; margin-top: 6px; }
+  .good { color: #3fb950; } .moderate { color: #fbbf24; } .unhealthy { color: #f87171; } .hazardous { color: #c084fc; }
+
+  /* Log */
+  .section-label { color: #8b949e; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin: 1.2rem 0 0.5rem; }
+  #log {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 10px 14px; max-height: 400px; overflow-y: auto;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; line-height: 1.6;
+  }
+  .log-line { border-bottom: 1px solid #21262d; padding: 6px 0; }
+  .log-topic { color: #58a6ff; }
+  .log-json { color: #8b949e; white-space: pre; display: block; margin-top: 2px; font-size: 0.7rem; }
+  .log-time { color: #484f58; }
+
+  /* Code section */
+  .code-block {
+    background: #0d1117; border: 1px solid #30363d; border-radius: 8px;
+    padding: 14px; overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; line-height: 1.7;
+    color: #e6edf3; white-space: pre; margin-bottom: 1rem;
+  }
+  .code-block .comment { color: #8b949e; }
+  .code-block .keyword { color: #ff7b72; }
+  .code-block .string { color: #a5d6ff; }
+  .code-block .func { color: #d2a8ff; }
+  .code-block .num { color: #79c0ff; }
+
+  .prompt-box {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 14px; font-size: 0.8rem; line-height: 1.6; color: #8b949e;
+    margin-bottom: 1rem;
+  }
+  .prompt-box strong { color: #58a6ff; }
+
+  .tab-bar { display: flex; gap: 0; margin-bottom: 0; }
+  .tab {
+    padding: 8px 16px; font-size: 0.8rem; cursor: pointer;
+    background: #0d1117; color: #8b949e; border: 1px solid #30363d;
+    border-bottom: none; border-radius: 8px 8px 0 0;
+  }
+  .tab.active { background: #161b22; color: #e6edf3; border-bottom: 1px solid #161b22; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  footer { text-align: center; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #21262d; color: #484f58; font-size: 0.75rem; }
+  footer a { color: #58a6ff; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>DustBoy Live — MQTT Workshop</h1>
+  <div class="sub">Real-time PM2.5 via WebSocket — PSRU Workshop, 28 ก.พ. 2569</div>
+
+  <!-- Status -->
+  <div class="status-bar">
+    <div class="dot wait" id="dot"></div>
+    <span id="status">connecting...</span>
+    <span style="margin-left:auto; color:#484f58;" id="counter">0 messages</span>
+  </div>
+
+  <!-- Raw message log (fixed top) -->
+  <div class="section-label">Raw Messages (ล่าสุด 20 ข้อความ)</div>
+  <div id="log"></div>
+
+  <!-- Rendered sensor cards (below) -->
+  <div class="section-label">Rendered — การ์ดเซ็นเซอร์</div>
+  <div class="cards" id="cards"></div>
+
+  <!-- How it works -->
+  <div class="section-label">How It Works — วิธีทำงาน</div>
+  <div class="prompt-box">
+    <strong>Flow:</strong><br>
+    DustBoy Sensor → Mosquitto Broker (mqtt.laris.co:9002)<br>
+    → Cloudflare Worker WSS Bridge (dustboy-wss-bridge.laris.workers.dev)<br>
+    → Browser WebSocket → This Page<br><br>
+    <strong>Topic:</strong> <code style="color:#3fb950;">DUSTBOY/+/+/+/status</code><br>
+    <strong>Protocol:</strong> MQTT over WebSocket (WSS)<br>
+    <strong>Library:</strong> <code style="color:#3fb950;">mqtt.js</code> (unpkg CDN)
+  </div>
+
+  <!-- Code tabs -->
+  <div class="section-label">Source Code — โค้ดทั้งหมด</div>
+  <div class="tab-bar">
+    <div class="tab active" onclick="showTab('connect',this)">1. Connect</div>
+    <div class="tab" onclick="showTab('subscribe',this)">2. Subscribe</div>
+    <div class="tab" onclick="showTab('parse',this)">3. Parse</div>
+    <div class="tab" onclick="showTab('render',this)">4. Render</div>
+  </div>
+
+  <div class="tab-content active" id="tab-connect">
+    <div class="code-block"><span class="comment">// 1. Connect to MQTT broker via WebSocket</span>
+<span class="keyword">const</span> client = mqtt.<span class="func">connect</span>(<span class="string">'wss://dustboy-wss-bridge.laris.workers.dev/mqtt'</span>);
+
+client.<span class="func">on</span>(<span class="string">'connect'</span>, () => {
+  console.<span class="func">log</span>(<span class="string">'Connected!'</span>);
+  <span class="comment">// Subscribe to all DustBoy sensors</span>
+  client.<span class="func">subscribe</span>(<span class="string">'DUSTBOY/+/+/+/status'</span>);
+});
+
+client.<span class="func">on</span>(<span class="string">'error'</span>, (e) => console.<span class="func">log</span>(<span class="string">'Error:'</span>, e));
+client.<span class="func">on</span>(<span class="string">'offline'</span>, () => console.<span class="func">log</span>(<span class="string">'Offline'</span>));</div>
+  </div>
+
+  <div class="tab-content" id="tab-subscribe">
+    <div class="code-block"><span class="comment">// 2. Listen for messages</span>
+client.<span class="func">on</span>(<span class="string">'message'</span>, (topic, message) => {
+  <span class="comment">// topic = "DUSTBOY/Model-N/ID/xxx/status"</span>
+  <span class="comment">// message = JSON string with sensor data</span>
+  <span class="keyword">const</span> raw = message.<span class="func">toString</span>();
+  console.<span class="func">log</span>(topic, raw);
+});
+
+<span class="comment">// MQTT Wildcards:</span>
+<span class="comment">//   + = one level    (DUSTBOY/+/+/+/status)</span>
+<span class="comment">//   # = all levels   (DUSTBOY/#)</span></div>
+  </div>
+
+  <div class="tab-content" id="tab-parse">
+    <div class="code-block"><span class="comment">// 3. Parse sensor data from JSON</span>
+<span class="keyword">function</span> <span class="func">parse</span>(topic, raw) {
+  <span class="keyword">const</span> obj = JSON.<span class="func">parse</span>(raw);
+  <span class="keyword">const</span> parts = topic.<span class="func">split</span>(<span class="string">'/'</span>);
+  <span class="keyword">const</span> isModelT = parts[<span class="num">1</span>] === <span class="string">'Model-T'</span>;
+
+  <span class="comment">// Model-T: { pm2_5, pm10, temp, humid, rssi, nickname }</span>
+  <span class="comment">// Model-N: { d: { pm2_5, pm10, temperature_c, humidity_rh } }</span>
+
+  <span class="keyword">let</span> pm25, pm10, temp, humid, name;
+  <span class="keyword">if</span> (isModelT) {
+    pm25 = obj.pm2_5; pm10 = obj.pm10;
+    temp = obj.temp;  humid = obj.humid;
+    name = obj.nickname || parts[<span class="num">2</span>];
+  } <span class="keyword">else</span> {
+    <span class="keyword">const</span> d = obj.d || obj;
+    pm25 = d.pm2_5; pm10 = d.pm10;
+    temp = d.temperature_c; humid = d.humidity_rh;
+    name = d.myName || parts[<span class="num">3</span>];
+  }
+  <span class="keyword">return</span> { name, pm25, pm10, temp, humid };
+}</div>
+  </div>
+
+  <div class="tab-content" id="tab-render">
+    <div class="code-block"><span class="comment">// 4. Color by PM2.5 level (Thailand AQI)</span>
+<span class="keyword">function</span> <span class="func">pmColor</span>(pm25) {
+  <span class="keyword">if</span> (pm25 &lt;= <span class="num">25</span>)  <span class="keyword">return</span> <span class="string">'#3fb950'</span>;  <span class="comment">// Good</span>
+  <span class="keyword">if</span> (pm25 &lt;= <span class="num">50</span>)  <span class="keyword">return</span> <span class="string">'#fbbf24'</span>;  <span class="comment">// Moderate</span>
+  <span class="keyword">if</span> (pm25 &lt;= <span class="num">100</span>) <span class="keyword">return</span> <span class="string">'#f87171'</span>;  <span class="comment">// Unhealthy</span>
+  <span class="keyword">return</span> <span class="string">'#c084fc'</span>;                  <span class="comment">// Hazardous</span>
+}
+
+<span class="comment">// Update card in DOM</span>
+<span class="keyword">function</span> <span class="func">updateCard</span>(sensor) {
+  <span class="keyword">const</span> card = document.<span class="func">getElementById</span>(<span class="string">'card-'</span> + sensor.id);
+  <span class="comment">// ... set innerHTML with PM2.5 number + color</span>
+}</div>
+  </div>
+
+  <!-- Prompt -->
+  <div class="section-label">Prompt ที่ใช้สร้างหน้านี้</div>
+  <div class="prompt-box">
+    <strong>Prompt:</strong><br>
+    "basic mosquitto html subscribe wss dustboy-wss-bridge.laris.workers.dev"<br><br>
+    <strong>สิ่งที่ต้องรู้:</strong><br>
+    1. WSS URL ของ broker — <code style="color:#3fb950;">wss://dustboy-wss-bridge.laris.workers.dev/mqtt</code><br>
+    2. Topic pattern — <code style="color:#3fb950;">DUSTBOY/+/+/+/status</code><br>
+    3. Library — <code style="color:#3fb950;">&lt;script src="https://unpkg.com/mqtt/dist/mqtt.min.js"&gt;</code><br><br>
+    <strong>แค่ 3 บรรทัด connect + subscribe + on message — จบ!</strong>
+  </div>
+
+  <footer>
+    <a href="index.html">PSRU Workshop</a> — <a href="https://github.com/Soul-Brews-Studio/two-rivers-oracle">GitHub</a><br>
+    Two Rivers (สองแคว) — Teaching Oracle
+  </footer>
+
+</div>
+
+<script>
+// ===== TAB SWITCHING =====
+function showTab(name, el) {
+  document.querySelectorAll('.tab-content').forEach(e => e.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(e => e.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  el.classList.add('active');
+}
+
+// ===== MQTT CONNECTION =====
+const sensors = new Map();
+const logEl = document.getElementById('log');
+const cardsEl = document.getElementById('cards');
+const dotEl = document.getElementById('dot');
+const statusEl = document.getElementById('status');
+const counterEl = document.getElementById('counter');
+let msgCount = 0;
+
+function pmColorClass(pm25) {
+  if (pm25 <= 25) return 'good';
+  if (pm25 <= 50) return 'moderate';
+  if (pm25 <= 100) return 'unhealthy';
+  return 'hazardous';
+}
+
+function pmColorHex(pm25) {
+  if (pm25 <= 25) return '#3fb950';
+  if (pm25 <= 50) return '#fbbf24';
+  if (pm25 <= 100) return '#f87171';
+  return '#c084fc';
+}
+
+function pmLabel(pm25) {
+  if (pm25 <= 25) return 'Good';
+  if (pm25 <= 50) return 'Moderate';
+  if (pm25 <= 100) return 'Unhealthy';
+  return 'Hazardous';
+}
+
+function parseMsg(topic, raw) {
+  const msg = raw.toString();
+  if (msg === 'offline' || msg === 'online') return null;
+  try {
+    const obj = JSON.parse(msg);
+    const parts = topic.split('/');
+    const isModelT = parts[1] === 'Model-T';
+    const id = isModelT ? (obj.nickname || parts[2]) : (parts[3] || parts[2] || 'unknown');
+    const model = isModelT ? 'Model-T' : 'Model-N';
+
+    let pm25, pm10, temp, humid, name;
+    if (isModelT) {
+      pm25 = obj.pm2_5; pm10 = obj.pm10;
+      temp = obj.temp; humid = obj.humid;
+      name = obj.nickname || id;
+    } else if (obj.d) {
+      const d = obj.d;
+      pm25 = d.pm2_5; pm10 = d.pm10;
+      temp = d.temperature_c || d.temp_c;
+      humid = d.humidity_rh || d.humid_rh;
+      name = d.myName || id;
+    } else {
+      pm25 = obj.pm2_5; pm10 = obj.pm10;
+      temp = obj.temp_c; humid = obj.humid_rh;
+      name = id;
+    }
+    return { id, name, model, pm25, pm10, temp, humid, ts: Date.now() };
+  } catch { return null; }
+}
+
+function renderCards() {
+  const sorted = [...sensors.values()].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
+  cardsEl.innerHTML = sorted.map(s => {
+    const cls = pmColorClass(s.pm25);
+    const age = Math.round((Date.now() - s.ts) / 1000);
+    const ageStr = age < 60 ? age + 's ago' : Math.round(age / 60) + 'm ago';
+    return `<div class="card" id="card-${s.id}">
+      <div class="card-name">${s.name} <span class="tag">${s.model}</span></div>
+      <div class="pm-row">
+        <div class="pm-box"><div class="pm-num ${cls}">${s.pm25 != null ? Math.round(s.pm25) : '—'}</div><div class="pm-label">PM2.5 — ${s.pm25 != null ? pmLabel(s.pm25) : '?'}</div></div>
+        <div class="pm-box"><div class="pm-num" style="color:#8b949e">${s.pm10 != null ? Math.round(s.pm10) : '—'}</div><div class="pm-label">PM10</div></div>
+      </div>
+      <div class="env">
+        <span>${s.temp != null ? s.temp.toFixed(1) + ' C' : ''}</span>
+        <span>${s.humid != null ? s.humid.toFixed(0) + '% RH' : ''}</span>
+      </div>
+      <div class="card-time">${ageStr}</div>
+    </div>`;
+  }).join('');
+}
+
+function addLog(topic, raw) {
+  const time = new Date().toLocaleTimeString('th-TH');
+  const json = raw.toString();
+
+  // Pretty-print the JSON
+  let pretty = json;
+  try { pretty = JSON.stringify(JSON.parse(json), null, 2); } catch {}
+
+  const escaped = pretty.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const line = `<div class="log-line"><span class="log-time">${time}</span> <span class="log-topic">${topic}</span>\n<span class="log-json">${escaped}</span></div>`;
+  logEl.insertAdjacentHTML('afterbegin', line);
+
+  // Keep only 20 lines
+  while (logEl.children.length > 20) logEl.removeChild(logEl.lastChild);
+}
+
+// Connect
+const client = mqtt.connect('wss://dustboy-wss-bridge.laris.workers.dev/mqtt');
+
+client.on('connect', () => {
+  dotEl.className = 'dot on';
+  statusEl.textContent = 'connected';
+  statusEl.style.color = '#3fb950';
+  client.subscribe('DUSTBOY/+/+/+/status');
+});
+
+client.on('message', (topic, message) => {
+  msgCount++;
+  counterEl.textContent = msgCount + ' messages';
+  addLog(topic, message);
+
+  const s = parseMsg(topic, message);
+  if (!s) return;
+  sensors.set(s.id, s);
+  renderCards();
+
+  // Flash
+  const el = document.getElementById('card-' + s.id);
+  if (el) { el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 500); }
+});
+
+client.on('offline', () => {
+  dotEl.className = 'dot off';
+  statusEl.textContent = 'offline';
+  statusEl.style.color = '#f87171';
+});
+
+client.on('error', (e) => {
+  dotEl.className = 'dot off';
+  statusEl.textContent = 'error: ' + e.message;
+  statusEl.style.color = '#f87171';
+});
+
+// Refresh ages
+setInterval(renderCards, 10000);
+</script>
+</body>
+</html>
+
