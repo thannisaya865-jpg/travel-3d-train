@@ -332,53 +332,39 @@
         </div>
     </div>
 
-    <script>console.log("Page loaded, starting script initialization...");</script>
+    <!-- Ethers.js v6 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
 
-    <!-- Viem.js ESM Build with Bundling -->
-    <script type="module">
-        console.log("Module script starting...");
-        import { createPublicClient, http, parseAbiItem } from 'https://esm.sh/viem@2.21.31?bundle';
+    <script>
+        console.log("Page loaded, starting Ethers.js initialization...");
 
-        console.log("Viem (Bundled) imported successfully");
-
-        // Chain Configuration
-        const jibchain = {
-            id: 8899,
-            name: 'JIBCHAIN L1',
-            rpcUrls: { default: { http: ['https://rpc-l1.jibchain.net'] } },
-            blockExplorers: { default: { url: 'https://exp.jibchain.net' } }
-        };
-
-        const client = createPublicClient({
-            chain: jibchain,
-            transport: http(),
-            batch: { multicall: true }
-        });
-
+        // JIBCHAIN L1 Configuration
+        const JIB_RPC = 'https://rpc-l1.jibchain.net';
         const FACTORY_ADDRESS = '0x63bB41b79b5aAc6e98C7b35Dcb0fE941b85Ba5Bb';
         const STORE_ADDRESS = '0xCd3Ec17ddFDa24f8F97131fa0FDf20e7cbd1A8Bb';
         const UNIVERSAL_SIGNER = '0xcB0e58b011924e049ce4b4D62298Edf43dFF0BDd';
 
         // ABIs
         const FactoryABI = [
-            parseAbiItem('function getStoreInfo(address store) view returns (string nickname, address owner, uint256 authorizedSensorCount, uint128 deployedBlock, string description)')
+            "function getStoreInfo(address store) view returns (string nickname, address owner, uint256 authorizedSensorCount, uint128 deployedBlock, string description)"
         ];
 
         const StoreABI = [
-            parseAbiItem('function getAllFields() view returns (tuple(string name, string unit, string dtype)[] fields)'),
-            parseAbiItem('function getLatestRecord(address sensor) view returns (uint256 timestamp, int256[] values)'),
-            parseAbiItem('event RecordStored(address indexed sensor, uint256 timestamp, int256[] values)')
+            "function getAllFields() view returns (tuple(string name, string unit, string dtype)[] fields)",
+            "function getLatestRecord(address sensor) view returns (uint256 timestamp, int256[] values)",
+            "event RecordStored(address indexed sensor, uint256 timestamp, int256[] values)"
         ];
 
         // Utils
         const truncateAddr = (addr) => `${addr.slice(0, 10)}...${addr.slice(-6)}`;
 
         function processValue(value, unit) {
+            const val = Number(value);
             const baseUnit = unit.replace(/ x\d+/, '');
-            if (unit.includes('x10000')) return (Number(value) / 10000).toFixed(4) + ' ' + baseUnit;
-            if (unit.includes('x1000')) return (Number(value) / 1000).toFixed(3) + ' ' + baseUnit;
-            if (unit.includes('x100')) return (Number(value) / 100).toFixed(3) + ' ' + baseUnit;
-            return value + ' ' + baseUnit;
+            if (unit.includes('x10000')) return (val / 10000).toFixed(4) + ' ' + baseUnit;
+            if (unit.includes('x1000')) return (val / 1000).toFixed(3) + ' ' + baseUnit;
+            if (unit.includes('x100')) return (val / 100).toFixed(3) + ' ' + baseUnit;
+            return val + ' ' + baseUnit;
         }
 
         function formatFieldName(baseName, allFields, values) {
@@ -390,84 +376,69 @@
             return name;
         }
 
-        // Global Chart Ref
+        // Global State
         let chartInstance = null;
-        let historicalData = []; // [{ timestamp, waterDepth, batteryVoltage }]
+        let historicalData = [];
+        let provider, factoryContract, storeContract;
 
         async function init() {
-            console.log("Init started...");
+            console.log("Init started with Ethers...");
             try {
-                console.log("Fetching block number...");
-                const currentBlockNumber = await client.getBlockNumber();
+                provider = new ethers.JsonRpcProvider(JIB_RPC);
+                factoryContract = new ethers.Contract(FACTORY_ADDRESS, FactoryABI, provider);
+                storeContract = new ethers.Contract(STORE_ADDRESS, StoreABI, provider);
+
+                const currentBlockNumber = await provider.getBlockNumber();
                 console.log("Current block:", currentBlockNumber);
                 document.getElementById('ui-current-block').innerText = `Current Block: ${currentBlockNumber}`;
 
                 // 1. Get Store Info
                 console.log("Fetching store info...");
-                const [nickname, owner, sensorCount, deployedBlock, description] = await client.readContract({
-                    address: FACTORY_ADDRESS,
-                    abi: FactoryABI,
-                    functionName: 'getStoreInfo',
-                    args: [STORE_ADDRESS]
-                });
+                const info = await factoryContract.getStoreInfo(STORE_ADDRESS);
+                const [nickname, owner, sensorCount, deployedBlock, description] = info;
                 console.log("Store info fetched:", nickname);
 
                 document.getElementById('ui-nickname').innerText = nickname;
                 document.getElementById('ui-desc').innerText = description;
                 document.getElementById('ui-store-addr').innerText = truncateAddr(STORE_ADDRESS);
-                document.getElementById('ui-store-link').href = `${jibchain.blockExplorers.default.url}/address/${STORE_ADDRESS}`;
+                document.getElementById('ui-store-link').href = `https://exp.jibchain.net/address/${STORE_ADDRESS}`;
 
                 document.getElementById('ft-owner').innerText = truncateAddr(owner);
-                document.getElementById('ft-owner').href = `${jibchain.blockExplorers.default.url}/address/${owner}`;
+                document.getElementById('ft-owner').href = `https://exp.jibchain.net/address/${owner}`;
                 document.getElementById('ft-deployed').innerText = `#${deployedBlock}`;
-                document.getElementById('ft-deployed').href = `${jibchain.blockExplorers.default.url}/block/${deployedBlock}`;
-                document.getElementById('ft-sensors').innerText = sensorCount;
+                document.getElementById('ft-deployed').href = `https://exp.jibchain.net/block/${deployedBlock}`;
+                document.getElementById('ft-sensors').innerText = sensorCount.toString();
 
                 // 2. Get Fields & Latest Data
                 console.log("Fetching fields...");
-                const fields = await client.readContract({
-                    address: STORE_ADDRESS,
-                    abi: StoreABI,
-                    functionName: 'getAllFields'
-                });
+                const fields = await storeContract.getAllFields();
                 console.log("Fields fetched:", fields.length);
 
                 console.log("Fetching latest record...");
-                const [timestamp, values] = await client.readContract({
-                    address: STORE_ADDRESS,
-                    abi: StoreABI,
-                    functionName: 'getLatestRecord',
-                    args: [UNIVERSAL_SIGNER]
-                });
+                const record = await storeContract.getLatestRecord(UNIVERSAL_SIGNER);
+                const [timestamp, values] = record;
                 console.log("Latest record fetched at:", Number(timestamp));
 
                 const date = new Date(Number(timestamp) * 1000);
-                const dateStrFull = date.toLocaleString('en-US');
-                const timeStr = date.toLocaleTimeString('en-US');
-
-                document.getElementById('ui-last-updated').innerText = `Last Updated: ${timeStr}`;
-                document.getElementById('ft-updated').innerText = dateStrFull;
+                document.getElementById('ui-last-updated').innerText = `Last Updated: ${date.toLocaleTimeString('en-US')}`;
+                document.getElementById('ft-updated').innerText = date.toLocaleString('en-US');
 
                 // 3. Process Data Table
-                // Group fields into families: { "battery_voltage": { current, min, max, unit } }
                 const families = {};
                 fields.forEach((f, idx) => {
                     if (f.name.includes('_count')) return;
                     let isMin = f.name.endsWith('_min');
                     let isMax = f.name.endsWith('_max');
-
-                    let baseName = f.name;
-                    if (isMin) baseName = f.name.replace('_min', '');
-                    else if (isMax) baseName = f.name.replace('_max', '');
+                    let baseName = f.name.replace('_min', '').replace('_max', '');
 
                     if (!families[baseName]) families[baseName] = { unit: f.unit };
-
                     if (isMin) families[baseName].min = processValue(values[idx], f.unit);
                     else if (isMax) families[baseName].max = processValue(values[idx], f.unit);
                     else families[baseName].current = processValue(values[idx], f.unit);
                 });
 
                 const tbody = document.getElementById('table-body');
+                tbody.innerHTML = '';
                 for (const [baseName, data] of Object.entries(families)) {
                     const row = document.createElement('tr');
                     const displayName = formatFieldName(baseName, fields, values);
@@ -480,154 +451,105 @@
                     tbody.appendChild(row);
                 }
 
-                // 4. Fetch Historical Data
-                const fromBlock = currentBlockNumber - BigInt(28800); // ~24h
-                const logs = await client.getContractEvents({
-                    address: STORE_ADDRESS,
-                    abi: StoreABI,
-                    eventName: 'RecordStored',
-                    fromBlock: fromBlock,
-                    toBlock: 'latest',
-                    args: { sensor: UNIVERSAL_SIGNER }
-                });
+                // 4. Fetch Historical Data (RecordStored events)
+                console.log("Fetching historical events...");
+                const filter = storeContract.filters.RecordStored(UNIVERSAL_SIGNER);
+                const fromBlock = currentBlockNumber - 5000; // Limit range for faster load
+                const logs = await storeContract.queryFilter(filter, fromBlock, "latest");
+                console.log("Events found:", logs.length);
 
                 const wdIdx = fields.findIndex(f => f.name === 'water_depth');
                 const bvIdx = fields.findIndex(f => f.name === 'battery_voltage');
 
-                historicalData = logs.map(ev => ({
-                    timestamp: Number(ev.args.timestamp) * 1000,
-                    waterDepth: wdIdx >= 0 ? Number(ev.args.values[wdIdx]) / 10000 : null,
-                    batteryVoltage: bvIdx >= 0 ? Number(ev.args.values[bvIdx]) / 100 : null
-                })).sort((a, b) => a.timestamp - b.timestamp);
+                historicalData = logs.map(log => {
+                    const { timestamp, values } = log.args;
+                    return {
+                        timestamp: Number(timestamp) * 1000,
+                        waterDepth: wdIdx >= 0 ? Number(values[wdIdx]) / 10000 : null,
+                        batteryVoltage: bvIdx >= 0 ? Number(values[bvIdx]) / 100 : null
+                    };
+                }).sort((a, b) => a.timestamp - b.timestamp);
 
-                // Initialize Chart
                 renderChart('water_depth');
 
                 // Bind Buttons
-                document.getElementById('btn-water').addEventListener('click', (e) => {
-                    e.target.classList.add('active-water');
+                document.getElementById('btn-water').onclick = () => {
+                    document.getElementById('btn-water').classList.add('active-water');
                     document.getElementById('btn-voltage').classList.remove('active-voltage');
                     renderChart('water_depth');
-                });
+                };
 
-                document.getElementById('btn-voltage').addEventListener('click', (e) => {
-                    e.target.classList.add('active-voltage');
+                document.getElementById('btn-voltage').onclick = () => {
+                    document.getElementById('btn-voltage').classList.add('active-voltage');
                     document.getElementById('btn-water').classList.remove('active-water');
                     renderChart('battery_voltage');
-                });
+                };
 
-                // Hide Loading
                 document.getElementById('loading').style.display = 'none';
-
             } catch (err) {
-                console.error(err);
+                console.error("Init Error:", err);
                 document.getElementById('loading').innerHTML = `
-                    <i class="fa-solid fa-triangle-exclamation" style="font-size: 3rem; color: #ef4444; margin-bottom: 16px;"></i>
-                    <p style="font-weight: 500;">Failed to fetch blockchain data.</p>
-                    <p style="font-size: 0.9rem; color: #6b7280; margin-top: 8px;">${err.message}</p>
+                    <div style="text-align:center; padding: 20px;">
+                        <i class="fa-solid fa-triangle-exclamation" style="font-size: 3rem; color: #ef4444; margin-bottom: 16px;"></i>
+                        <p style="font-weight: 500;">Connection Error</p>
+                        <p style="font-size: 0.9rem; color: #6b7280; margin-top: 8px;">${err.message}</p>
+                        <button onclick="location.reload()" class="btn" style="margin-top: 15px; background: #3b82f6; color: white;">Try Again</button>
+                    </div>
                 `;
             }
         }
 
-        // Data Smoothing (Moving Average)
         function smoothData(data, windowSize = 3) {
             return data.map((val, idx, arr) => {
                 if (val === null) return null;
                 const window = arr.slice(Math.max(idx - windowSize + 1, 0), idx + 1).filter(v => v !== null);
-                const sum = window.reduce((a, b) => a + b, 0);
-                return sum / window.length;
+                return window.reduce((a, b) => a + b, 0) / window.length;
             });
         }
 
         function renderChart(type) {
             const ctx = document.getElementById('historicalChart').getContext('2d');
-
-            if (historicalData.length === 0) {
-                // If no data
-                return;
-            }
-
-            const labels = historicalData.map(d => new Date(d.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-            let rawValues, smoothedValues;
+            if (historicalData.length === 0) return;
 
             const isWater = type === 'water_depth';
-            const colorPrimary = isWater ? '#3B82F6' : '#10B981';
-            const colorBg = isWater ? 'rgba(59, 130, 246, 0.1)' : 'rgba(16, 185, 129, 0.1)';
             const title = isWater ? 'Water Depth Over Time' : 'Battery Voltage Over Time';
             const unit = isWater ? 'm' : 'V';
+            const color = isWater ? '#3B82F6' : '#10B981';
 
-            if (isWater) {
-                rawValues = historicalData.map(d => d.waterDepth);
-            } else {
-                rawValues = historicalData.map(d => d.batteryVoltage);
-            }
-
-            smoothedValues = smoothData(rawValues, 3); // Apply moving avg
+            const labels = historicalData.map(d => new Date(d.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            const rawValues = historicalData.map(d => isWater ? d.waterDepth : d.batteryVoltage);
+            const smoothedValues = smoothData(rawValues, 3);
 
             if (chartInstance) chartInstance.destroy();
-
             chartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: labels,
-                    datasets: [
-                        {
-                            label: `${title} (Smoothed)`,
-                            data: smoothedValues,
-                            borderColor: colorPrimary,
-                            backgroundColor: colorBg,
-                            borderWidth: 3,
-                            fill: true,
-                            tension: 0.4,
-                            pointRadius: 2,
-                            pointHoverRadius: 5
-                        },
-                        {
-                            label: `${title} (Raw)`,
-                            data: rawValues,
-                            borderColor: 'rgba(156, 163, 175, 0.5)',
-                            borderWidth: 1,
-                            borderDash: [5, 5],
-                            fill: false,
-                            pointRadius: 1,
-                            hidden: true // Hidden by default
-                        }
-                    ]
+                    datasets: [{
+                        label: `${title} (Smoothed)`,
+                        data: smoothedValues,
+                        borderColor: color,
+                        backgroundColor: isWater ? 'rgba(59, 130, 246, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 2
+                    }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
-                        legend: { position: 'top' },
                         tooltip: {
-                            mode: 'index',
-                            intersect: false,
-                            callbacks: {
-                                label: function (context) {
-                                    return `${context.dataset.label}: ${context.parsed.y.toFixed(3)} ${unit}`;
-                                }
-                            }
+                            callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(4)} ${unit}` }
                         }
                     },
-                    scales: {
-                        x: { grid: { display: false } },
-                        y: {
-                            beginAtZero: false,
-                            title: { display: true, text: `Value (${unit})` }
-                        }
-                    },
-                    interaction: {
-                        mode: 'nearest',
-                        axis: 'x',
-                        intersect: false
-                    }
+                    scales: { y: { beginAtZero: false } }
                 }
             });
         }
 
-        // Boot
         window.addEventListener('load', init);
-
     </script>
 </body>
 
