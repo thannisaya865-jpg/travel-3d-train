@@ -334,7 +334,10 @@
 
     <!-- Viem.js ESM Build -->
     <script type="module">
-        import { createPublicClient, http, parseAbiItem } from 'https://esm.sh/viem';
+        console.log("Script starting...");
+        import { createPublicClient, http, parseAbiItem } from 'https://esm.sh/viem@2.21.31';
+
+        console.log("Viem imported successfully");
 
         // Chain Configuration
         const jibchain = {
@@ -346,11 +349,11 @@
 
         const client = createPublicClient({
             chain: jibchain,
-            transport: http()
+            transport: http(),
+            batch: { multicall: true }
         });
 
         const FACTORY_ADDRESS = '0x63bB41b79b5aAc6e98C7b35Dcb0fE941b85Ba5Bb';
-        // You can change this to 0x0994Bc66b2863f8D58C8185b1ed6147895632812 for FloodBoy016
         const STORE_ADDRESS = '0xCd3Ec17ddFDa24f8F97131fa0FDf20e7cbd1A8Bb';
         const UNIVERSAL_SIGNER = '0xcB0e58b011924e049ce4b4D62298Edf43dFF0BDd';
 
@@ -390,17 +393,22 @@
         let historicalData = []; // [{ timestamp, waterDepth, batteryVoltage }]
 
         async function init() {
+            console.log("Init started...");
             try {
+                console.log("Fetching block number...");
                 const currentBlockNumber = await client.getBlockNumber();
+                console.log("Current block:", currentBlockNumber);
                 document.getElementById('ui-current-block').innerText = `Current Block: ${currentBlockNumber}`;
 
                 // 1. Get Store Info
+                console.log("Fetching store info...");
                 const [nickname, owner, sensorCount, deployedBlock, description] = await client.readContract({
                     address: FACTORY_ADDRESS,
                     abi: FactoryABI,
                     functionName: 'getStoreInfo',
                     args: [STORE_ADDRESS]
                 });
+                console.log("Store info fetched:", nickname);
 
                 document.getElementById('ui-nickname').innerText = nickname;
                 document.getElementById('ui-desc').innerText = description;
@@ -414,18 +422,22 @@
                 document.getElementById('ft-sensors').innerText = sensorCount;
 
                 // 2. Get Fields & Latest Data
+                console.log("Fetching fields...");
                 const fields = await client.readContract({
                     address: STORE_ADDRESS,
                     abi: StoreABI,
                     functionName: 'getAllFields'
                 });
+                console.log("Fields fetched:", fields.length);
 
+                console.log("Fetching latest record...");
                 const [timestamp, values] = await client.readContract({
                     address: STORE_ADDRESS,
                     abi: StoreABI,
                     functionName: 'getLatestRecord',
                     args: [UNIVERSAL_SIGNER]
                 });
+                console.log("Latest record fetched at:", Number(timestamp));
 
                 const date = new Date(Number(timestamp) * 1000);
                 const dateStrFull = date.toLocaleString('en-US');
