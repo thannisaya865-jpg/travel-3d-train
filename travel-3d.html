@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Train: Chiang Mai to Phitsanulok | Nara Oracle</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box
+        }
+
+        body {
+            background: #040810;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw
+        }
+
+        canvas {
+            display: block
+        }
+
+        #canvas-container {
+            position: fixed;
+            inset: 0
+        }
+
+        /* glassmorphism panels */
+        .panel {
+            position: fixed;
+            z-index: 100;
+            background: rgba(8, 16, 32, 0.75);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(88, 166, 255, 0.2);
+            border-radius: 16px;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+
+        /* Header */
+        #header {
+            top: 20px;
+            left: 20px;
+            padding: 14px 20px;
+            min-width: 200px
+        }
+
+        #header h1 {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #79c0ff;
+            letter-spacing: .5px;
+            display: flex;
+            align-items: center;
+            gap: 8px
+        }
+
+        #header p {
+            font-size: .78rem;
+            color: #8b949e;
+            margin-top: 4px
+        }
+
+        .dot-live {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #3fb950;
+            box-shadow: 0 0 8px #3fb950;
+            animation: blink 1.5s ease-in-out infinite
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1
+            }
+
+            50% {
+                opacity: .3
+            }
+        }
+
+        /* Station panel */
+        #station {
+            top: 20px;
+            right: 20px;
+            padding: 16px 20px;
+            min-width: 230px
+        }
+
+        .s-label {
+            font-size: .65rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #58a6ff;
+            margin-bottom: 8px
+        }
+
+        .s-name {
+            font-size: .95rem;
+            font-weight: 600;
+            color: #f0f6fc;
+            line-height: 1.3
+        }
+
+        .s-time {
+            font-size: .72rem;
+            color: #8b949e;
+            margin-top: 4px
+        }
+
+        .bat-wrap {
+            margin-top: 12px
+        }
+
+        .bat-label {
+            font-size: .68rem;
+            color: #8b949e;
+            margin-bottom: 5px
+        }
+
+        .bat-track {
+            height: 5px;
+            background: rgba(88, 166, 255, 0.12);
+            border-radius: 5px;
+            overflow: hidden
+        }
+
+        .bat-fill {
+            height: 100%;
+            border-radius: 5px;
+            background: linear-gradient(90deg, #1f6feb, #58a6ff);
+            transition: width .5s ease
+        }
+
+        /* Controls */
+        #controls {
+            bottom: 76px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 8px;
+            padding: 10px 14px;
+            pointer-events: all;
+        }
+
+        .btn {
+            background: rgba(22, 33, 55, 0.9);
+            border: 1px solid rgba(88, 166, 255, 0.25);
+            color: #79c0ff;
+            padding: 8px 16px;
+            border-radius: 30px;
+            font-size: .8rem;
+            cursor: pointer;
+            transition: all .2s;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+
+        .btn:hover {
+            background: rgba(88, 166, 255, 0.15);
+            border-color: #58a6ff;
+            transform: translateY(-1px)
+        }
+
+        /* Progress */
+        #progress {
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(580px, 90vw);
+            padding: 10px 18px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            pointer-events: all;
+        }
+
+        .p-label {
+            font-size: .72rem;
+            color: #8b949e;
+            white-space: nowrap;
+            min-width: 60px
+        }
+
+        .p-right {
+            text-align: right;
+            min-width: 60px
+        }
+
+        .p-track {
+            flex: 1;
+            height: 5px;
+            background: rgba(88, 166, 255, 0.1);
+            border-radius: 5px;
+            overflow: hidden;
+            cursor: pointer
+        }
+
+        .p-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #0d419d, #58a6ff);
+            border-radius: 5px;
+            transition: width .08s linear
+        }
+
+        .p-pct {
+            font-size: .78rem;
+            color: #58a6ff;
+            min-width: 38px;
+            text-align: right;
+            font-weight: 600
+        }
+
+        /* Footer */
+        #footer {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            font-size: .7rem;
+            color: rgba(139, 148, 158, .5)
+        }
+
+        /* Loading */
+        #loading {
+            position: fixed;
+            inset: 0;
+            background: #040810;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 999;
+            gap: 20px;
+        }
+
+        .l-icon {
+            font-size: 3.5rem;
+            animation: loco 1s ease-in-out infinite alternate
+        }
+
+        @keyframes loco {
+            from {
+                transform: translateX(-16px)
+            }
+
+            to {
+                transform: translateX(16px)
+            }
+        }
+
+        .l-bar {
+            width: 200px;
+            height: 3px;
+            background: rgba(88, 166, 255, .15);
+            border-radius: 3px;
+            overflow: hidden
+        }
+
+        .l-fill {
+            height: 100%;
+            background: #58a6ff;
+            border-radius: 3px;
+            animation: load 1.5s ease-in-out infinite
+        }
+
+        @keyframes load {
+            0% {
+                width: 0;
+                margin-left: 0
+            }
+
+            50% {
+                width: 60%
+            }
+
+            100% {
+                width: 0;
+                margin-left: 100%
+            }
+        }
+
+        .l-text {
+            font-size: .85rem;
+            color: #58a6ff;
+            opacity: .7
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="loading">
+        <div class="l-icon">🚂</div>
+        <div class="l-bar">
+            <div class="l-fill"></div>
+        </div>
+        <div class="l-text">Loading 3D scene...</div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <div class="panel" id="header">
+        <h1>
+            <div class="dot-live"></div>3D Train Journey
+        </h1>
+        <p>Chiang Mai &rarr; Phitsanulok</p>
+    </div>
+
+    <div class="panel" id="station">
+        <div class="s-label">Current Location</div>
+        <div class="s-name" id="s-name">Loading...</div>
+        <div class="s-time" id="s-time"></div>
+        <div class="bat-wrap">
+            <div class="bat-label">Battery <span id="bat-pct">--%</span></div>
+            <div class="bat-track">
+                <div class="bat-fill" id="bat-fill" style="width:80%"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel" id="controls">
+        <button class="btn" id="btn-play" onclick="togglePlay()">&#9646;&#9646; Pause</button>
+        <button class="btn" id="btn-speed" onclick="toggleSpeed()">&#9889; 1x</button>
+        <button class="btn" onclick="resetJourney()">&#8635; Reset</button>
+        <button class="btn" id="btn-cam" onclick="toggleCamera()">&#127909; Follow</button>
+    </div>
+
+    <div class="panel" id="progress">
+        <span class="p-label">Chiang Mai</span>
+        <div class="p-track" onclick="seekProgress(event)">
+            <div class="p-fill" id="p-fill"></div>
+        </div>
+        <span class="p-label p-right">Phitsanulok</span>
+        <span class="p-pct" id="p-pct">0%</span>
+    </div>
+
+    <div id="footer">Nara Oracle</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script>
+        // ===== GPS waypoints =====
+        const STOPS = [
+            { lat: 18.7883, lon: 98.9853, place: "Chiang Mai", time: "06:00", bat: 95 },
+            { lat: 18.5800, lon: 99.0000, place: "Lamphun", time: "06:45", bat: 92 },
+            { lat: 18.2888, lon: 99.4977, place: "Lampang", time: "08:00", bat: 85 },
+            { lat: 17.6200, lon: 99.8100, place: "Den Chai Pass", time: "09:30", bat: 73 },
+            { lat: 17.3000, lon: 99.9000, place: "Uttaradit", time: "10:45", bat: 65 },
+            { lat: 16.8800, lon: 100.1500, place: "Phrae", time: "11:30", bat: 58 },
+            { lat: 16.6000, lon: 100.2500, place: "Den Chai", time: "12:00", bat: 52 },
+            { lat: 16.8211, lon: 100.2659, place: "Phitsanulok", time: "13:45", bat: 40 },
+        ];
+
+        // ===== Three.js =====
+        let scene, camera, renderer, trackCurve;
+        let trainGroup, smokePool = [];
+        let t = 0, playing = true, spd = 0.0006, spdMul = 1, camMode = 0;
+
+        const container = document.getElementById('canvas-container');
+
+        function norm(val, min, max) { return (val - min) / (max - min); }
+
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x040810);
+            scene.fog = new THREE.FogExp2(0x040810, 0.006);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 2000);
+            camera.position.set(0, 12, 35);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+            renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+            renderer.setSize(innerWidth, innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.2;
+            container.appendChild(renderer.domElement);
+
+            // Lights
+            scene.add(new THREE.AmbientLight(0x102040, 0.7));
+
+            const moon = new THREE.DirectionalLight(0xaabbdd, 0.8);
+            moon.position.set(80, 150, 80);
+            moon.castShadow = true;
+            moon.shadow.mapSize.set(2048, 2048);
+            moon.shadow.camera.near = 1;
+            moon.shadow.camera.far = 500;
+            moon.shadow.camera.left = -100;
+            moon.shadow.camera.right = 100;
+            moon.shadow.camera.top = 100;
+            moon.shadow.camera.bottom = -100;
+            scene.add(moon);
+
+            // Train headlight (point light stored for update)
+            const hl = new THREE.SpotLight(0xffe8a0, 3, 80, Math.PI / 8, 0.5, 1);
+            scene.userData.headlight = hl;
+            scene.add(hl);
+            scene.add(hl.target);
+
+            buildTrack();
+            buildGround();
+            buildStars();
+            buildMountains();
+            buildTrees();
+            buildTrain();
+            buildStations();
+
+            document.getElementById('loading').style.display = 'none';
+            window.addEventListener('resize', onResize);
+            animate();
+        }
+
+        // ===== Track =====
+        function buildTrack() {
+            const lats = STOPS.map(s => s.lat);
+            const lons = STOPS.map(s => s.lon);
+            const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+            const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+            const S = 90;
+
+            const pts = STOPS.map(s => {
+                const x = (norm(s.lon, minLon, maxLon) - 0.5) * S;
+                const z = -(norm(s.lat, minLat, maxLat) - 0.5) * S;
+                return new THREE.Vector3(x, 0.5, z);
+            });
+            scene.userData.pts3d = pts;
+
+            trackCurve = new THREE.CatmullRomCurve3(pts);
+            const track = trackCurve.getPoints(800);
+
+            class BallastCurve extends THREE.Curve {
+                constructor(base) { super(); this.base = base; }
+                getPoint(t) { return this.base.getPoint(t); }
+            }
+            const ballastCurve = new BallastCurve(trackCurve);
+            const ballastGeo = new THREE.TubeGeometry(ballastCurve, 800, 1.8, 7, false);
+            const ballastMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 1.0, side: THREE.DoubleSide });
+            const ballastMesh = new THREE.Mesh(ballastGeo, ballastMat);
+            ballastMesh.position.y = -0.5;
+            ballastMesh.receiveShadow = true;
+            scene.add(ballastMesh);
+
+            const railSep = 1.0;
+            const railMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.8, roughness: 0.2 });
+
+            [1, -1].forEach(side => {
+                const offset = side * railSep / 2;
+                const railPts = track.map((p, i) => {
+                    const tng = trackCurve.getTangent(i / track.length);
+                    const perp = new THREE.Vector3(-tng.z, 0, tng.x).normalize();
+                    return new THREE.Vector3(p.x + perp.x * offset, p.y + 0.2, p.z + perp.z * offset);
+                });
+                const railCurve = new THREE.CatmullRomCurve3(railPts);
+                const railGeo = new THREE.TubeGeometry(railCurve, 800, 0.08, 5, false);
+                const railMesh = new THREE.Mesh(railGeo, railMat);
+                railMesh.castShadow = true;
+                railMesh.receiveShadow = true;
+                scene.add(railMesh);
+            });
+
+            const slpMat = new THREE.MeshStandardMaterial({ color: 0x777777, roughness: 0.9, metalness: 0.1 });
+            const slpGeo = new THREE.BoxGeometry(2.4, 0.15, 0.3);
+            track.forEach((p, i) => {
+                if (i % 8 !== 0) return;
+                const tng = trackCurve.getTangent(i / track.length);
+                const m = new THREE.Mesh(slpGeo, slpMat);
+                m.position.set(p.x, p.y + 0.05, p.z);
+                m.rotation.y = Math.atan2(tng.x, tng.z);
+                m.receiveShadow = true;
+                scene.add(m);
+            });
+
+            const glowGeo = new THREE.BufferGeometry().setFromPoints(track);
+            const glowMat = new THREE.LineBasicMaterial({ color: 0x00ffff, opacity: 0.4, transparent: true, linewidth: 2 });
+            const glowLine = new THREE.Line(glowGeo, glowMat);
+            glowLine.position.y += 0.1;
+            scene.add(glowLine);
+        }
+
+        // ===== Ground =====
+        function buildGround() {
+            const geo = new THREE.PlaneGeometry(400, 400, 60, 60);
+            const pos = geo.attributes.position;
+            for (let i = 0; i < pos.count; i++) {
+                const x = pos.getX(i), z = pos.getY(i);
+                pos.setZ(i, Math.sin(x * .04) * 1.8 + Math.cos(z * .035) * 1.5 + Math.sin(x * .1 + z * .08) * .5 - 1.2);
+            }
+            geo.computeVertexNormals();
+            const mat = new THREE.MeshLambertMaterial({ color: 0x0a1a0a });
+            const ground = new THREE.Mesh(geo, mat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+        }
+
+        // ===== Stars =====
+        function buildStars() {
+            const n = 2000;
+            const pos = new Float32Array(n * 3);
+            const col = new Float32Array(n * 3);
+            for (let i = 0; i < n; i++) {
+                pos[i * 3] = (Math.random() - .5) * 800;
+                pos[i * 3 + 1] = 50 + Math.random() * 250;
+                pos[i * 3 + 2] = (Math.random() - .5) * 800;
+                const br = 0.5 + Math.random() * .5;
+                col[i * 3] = br * (.8 + Math.random() * .2);
+                col[i * 3 + 1] = br * (.8 + Math.random() * .2);
+                col[i * 3 + 2] = br;
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+            const mat = new THREE.PointsMaterial({ size: .22, vertexColors: true, sizeAttenuation: true });
+            scene.add(new THREE.Points(geo, mat));
+        }
+
+        // ===== Mountains =====
+        function buildMountains() {
+            const mats = [
+                new THREE.MeshLambertMaterial({ color: 0x0d1f10 }),
+                new THREE.MeshLambertMaterial({ color: 0x0f2415 }),
+                new THREE.MeshLambertMaterial({ color: 0x0a1a0d }),
+            ];
+            const positions = [[-35, -25], [28, -18], [-18, 32], [32, 22], [-38, 12], [12, -38], [42, -10], [-12, 42]];
+            positions.forEach(([x, z]) => {
+                const h = 10 + Math.random() * 14;
+                const r = 6 + Math.random() * 5;
+                const seg = 5 + Math.floor(Math.random() * 3);
+                const geo = new THREE.ConeGeometry(r, h, seg);
+                const mesh = new THREE.Mesh(geo, mats[Math.floor(Math.random() * mats.length)]);
+                mesh.position.set(x, (h / 2) - 1.2, z);
+                mesh.rotation.y = Math.random() * Math.PI;
+                mesh.castShadow = true;
+                scene.add(mesh);
+                // Snow cap
+                const cap = new THREE.Mesh(new THREE.ConeGeometry(r * .3, h * .15, seg), new THREE.MeshLambertMaterial({ color: 0xddeeff, emissive: 0x112233, emissiveIntensity: .3 }));
+                cap.position.set(x, (h - h * .15 * .5) - 1.2, z);
+                cap.rotation.y = mesh.rotation.y;
+                scene.add(cap);
+            });
+        }
+
+        // ===== Trees =====
+        function buildTrees() {
+            const leafMat = new THREE.MeshLambertMaterial({ color: 0x143a14 });
+            const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3a2008 });
+            for (let i = 0; i < 120; i++) {
+                const tv = Math.random();
+                const p = trackCurve.getPoint(tv);
+                const tng = trackCurve.getTangent(tv);
+                const perp = new THREE.Vector3(-tng.z, 0, tng.x).normalize();
+                const side = (Math.random() > .5 ? 1 : -1) * (3.5 + Math.random() * 9);
+                const h = 1.8 + Math.random() * 3;
+                const cx = p.x + perp.x * side, cz = p.z + perp.z * side;
+                // Trunk
+                const trunk = new THREE.Mesh(new THREE.CylinderGeometry(.12, .18, .8, 6), trunkMat);
+                trunk.position.set(cx, .4, cz);
+                scene.add(trunk);
+                // Layered canopy
+                [0, 1, 2].forEach(layer => {
+                    const lr = (.7 - layer * .15) * (h * .35);
+                    const lh = h * .45 - layer * .08;
+                    const ly = .8 + layer * .4 * (h * .35);
+                    const leaf = new THREE.Mesh(new THREE.ConeGeometry(lr, lh, 7), leafMat);
+                    leaf.position.set(cx, ly, cz);
+                    leaf.castShadow = true;
+                    scene.add(leaf);
+                });
+            }
+        }
+
+        // ===== Train =====
+        function buildTrain() {
+            trainGroup = new THREE.Group();
+            scene.userData.wheels = [];
+
+            const M = {
+                body: new THREE.MeshStandardMaterial({ color: 0xeeeeee, metalness: 0.3, roughness: 0.2 }),
+                glass: new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.9, roughness: 0.1, transparent: true, opacity: 0.8 }),
+                stripe: new THREE.MeshStandardMaterial({ color: 0x00ccff, emissive: 0x0055ff, metalness: 0.4, roughness: 0.3 }),
+                base: new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8, roughness: 0.5 }),
+                wheel: new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.9, roughness: 0.4 })
+            };
+
+            const carLength = 10;
+            const carWidth = 2.4;
+            const carHeight = 2.8;
+
+            function createCarBase(len) {
+                const base = new THREE.Mesh(new THREE.BoxGeometry(len, 0.4, carWidth - 0.2), M.base);
+                base.position.y = 0.6;
+                base.castShadow = true;
+                return base;
+            }
+
+            function addWheels(parent, len) {
+                const positions = [[-len/2 + 1.5, -carWidth/2 + 0.1], [-len/2 + 1.5, carWidth/2 - 0.1], [len/2 - 1.5, -carWidth/2 + 0.1], [len/2 - 1.5, carWidth/2 - 0.1]];
+                positions.forEach(([x, z]) => {
+                    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16), M.wheel);
+                    wheel.rotation.x = Math.PI / 2;
+                    wheel.position.set(x, 0.4, z);
+                    wheel.castShadow = true;
+                    parent.add(wheel);
+                    scene.userData.wheels.push(wheel);
+                });
+            }
+
+            const loco = new THREE.Group();
+            
+            const noseGeo = new THREE.CylinderGeometry(0.01, carHeight/2, 4, 16);
+            const nose = new THREE.Mesh(noseGeo, M.body);
+            nose.rotation.z = Math.PI / 2;
+            nose.position.set(carLength/2 + 1, carHeight/2 + 0.6, 0);
+            nose.scale.set(1, 1, (carWidth / carHeight) * 0.9);
+            loco.add(nose);
+
+            const locoBodyGeo = new THREE.BoxGeometry(carLength, carHeight, carWidth);
+            const locoBody = new THREE.Mesh(locoBodyGeo, M.body);
+            locoBody.position.set(0, carHeight/2 + 0.8, 0);
+            loco.add(locoBody);
+
+            const locoWinGeo = new THREE.BoxGeometry(carLength - 1, carHeight * 0.4, carWidth + 0.05);
+            const locoWin = new THREE.Mesh(locoWinGeo, M.glass);
+            locoWin.position.set(-0.5, carHeight/2 + 1.0, 0);
+            loco.add(locoWin);
+
+            const cockpitWinGeo = new THREE.CylinderGeometry(0.1, carHeight * 0.3, 3, 16);
+            const cockpitWin = new THREE.Mesh(cockpitWinGeo, M.glass);
+            cockpitWin.rotation.z = Math.PI / 2;
+            cockpitWin.position.set(carLength/2 + 0.5, carHeight - 0.2, 0);
+            cockpitWin.scale.set(1, 1, (carWidth / (carHeight * 0.6)) * 0.8);
+            loco.add(cockpitWin);
+
+            const stripeGeo = new THREE.BoxGeometry(carLength + 3, 0.2, carWidth + 0.1);
+            const stripe = new THREE.Mesh(stripeGeo, M.stripe);
+            stripe.position.set(1, carHeight/2 + 0.2, 0);
+            loco.add(stripe);
+
+            loco.add(createCarBase(carLength));
+            addWheels(loco, carLength);
+
+            trainGroup.add(loco);
+
+            for (let i = 1; i <= 3; i++) {
+                const car = new THREE.Group();
+                const offset = -i * (carLength + 0.5);
+                car.position.x = offset;
+
+                const bodyGeo = new THREE.BoxGeometry(carLength, carHeight, carWidth);
+                const body = new THREE.Mesh(bodyGeo, M.body);
+                body.position.set(0, carHeight/2 + 0.8, 0);
+                car.add(body);
+
+                const winGeo = new THREE.BoxGeometry(carLength - 0.5, carHeight * 0.4, carWidth + 0.05);
+                const win = new THREE.Mesh(winGeo, M.glass);
+                win.position.set(0, carHeight/2 + 1.0, 0);
+                car.add(win);
+
+                const carStripe = new THREE.Mesh(new THREE.BoxGeometry(carLength, 0.2, carWidth + 0.1), M.stripe);
+                carStripe.position.set(0, carHeight/2 + 0.2, 0);
+                car.add(carStripe);
+
+                const connector = new THREE.Mesh(new THREE.BoxGeometry(0.5, carHeight - 0.4, carWidth - 0.2), M.base);
+                connector.position.set(carLength/2 + 0.25, carHeight/2 + 0.8, 0);
+                car.add(connector);
+
+                car.add(createCarBase(carLength));
+                addWheels(car, carLength);
+
+                trainGroup.add(car);
+            }
+
+            scene.add(trainGroup);
+        }
+
+        function mesh(geo, mat, x, y, z) {
+            const m = new THREE.Mesh(geo, mat);
+            m.position.set(x, y, z);
+            m.castShadow = true;
+            m.receiveShadow = true;
+            return m;
+        }
+
+        function addWheelPair(parent, M, x, y, wheelArr) {
+            [1.08, -1.08].forEach(z => {
+                const w = new THREE.Mesh(new THREE.CylinderGeometry(.44, .44, .28, 20), M.wheel);
+                w.rotation.x = Math.PI / 2;
+                w.position.set(x, y, z);
+                w.castShadow = true;
+                parent.add(w);
+                // Rim ring
+                const rim = new THREE.Mesh(new THREE.TorusGeometry(.44, .04, 6, 20), M.wheelRim);
+                rim.position.set(x, y, z == -1.08 ? z - .14 : z + .14);
+                parent.add(rim);
+                if (wheelArr) wheelArr.push(w, rim);
+            });
+        }
+
+        function buildCarriage(bodyMat, M, wheelArr) {
+            const grp = new THREE.Group();
+            const W = 4.2, H = 1.8, D = 2.0;
+
+            // Body
+            grp.add(mesh(new THREE.BoxGeometry(W, H, D), bodyMat, 0, 1.3, 0));
+            // Roof
+            grp.add(mesh(new THREE.BoxGeometry(W + .1, .22, D + .1), M.carAccent, 0, 2.3, 0));
+            // Underbelly
+            grp.add(mesh(new THREE.BoxGeometry(W + .2, .3, D + .2), M.dark, 0, .42, 0));
+            // Stripe
+            grp.add(mesh(new THREE.BoxGeometry(W, .07, D + .02), M.stripe, 0, 1.75, 0));
+            // Windows
+            [1.01, -1.01].forEach(z => {
+                for (let wx = -1.4; wx <= 1.4; wx += .85) {
+                    grp.add(mesh(new THREE.BoxGeometry(.06, .55, .5), M.glass, wx, 1.4, z));
+                }
+            });
+            // Doors
+            grp.add(mesh(new THREE.BoxGeometry(.06, 1.2, .55), M.dark, -1.9, 1.1, 0));
+            grp.add(mesh(new THREE.BoxGeometry(.06, 1.2, .55), M.dark, 1.9, 1.1, 0));
+
+            addWheelPair(grp, M, -1.5, 0.7, wheelArr);
+            addWheelPair(grp, M, 1.5, 0.7, wheelArr);
+            return grp;
+        }
+
+        // ===== Station Markers =====
+        function buildStations() {
+            const pts = scene.userData.pts3d;
+            pts.forEach((p, i) => {
+                const isEnd = i === 0 || i === pts.length - 1;
+                const col = isEnd ? 0xffd700 : 0x2a7fff;
+                const rad = isEnd ? .9 : .55;
+                const sph = new THREE.Mesh(new THREE.SphereGeometry(rad, 16, 16), new THREE.MeshBasicMaterial({ color: col }));
+                sph.position.set(p.x, p.y + .6, p.z);
+                scene.add(sph);
+                // Glow ring
+                const ring = new THREE.Mesh(new THREE.TorusGeometry(rad + .3, .04, 8, 30), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: .5 }));
+                ring.position.set(p.x, p.y + .6, p.z);
+                ring.rotation.x = Math.PI / 2;
+                scene.add(ring);
+                // Vertical pole
+                const pole = new THREE.Mesh(new THREE.CylinderGeometry(.04, .04, 4, 6), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: .4 }));
+                pole.position.set(p.x, p.y + 2, p.z);
+                scene.add(pole);
+            });
+        }
+
+        // ===== Smoke =====
+        const smokeMat = new THREE.MeshLambertMaterial({ color: 0x445566, transparent: true, opacity: .0, depthWrite: false });
+        function spawnSmoke(worldPos) {
+            if (Math.random() > .5) return;
+            if (smokePool.length > 40) return;
+            const geo = new THREE.SphereGeometry(.18 + Math.random() * .12, 6, 6);
+            const mat = smokeMat.clone();
+            mat.opacity = .45 + Math.random() * .2;
+            const s = new THREE.Mesh(geo, mat);
+            s.position.copy(worldPos);
+            s.position.y += 2.85;
+            s.userData.vel = new THREE.Vector3((Math.random() - .5) * .04, 0.06 + Math.random() * .04, (Math.random() - .5) * .03);
+            s.userData.age = 0;
+            s.userData.life = .8 + Math.random() * .5;
+            scene.add(s);
+            smokePool.push(s);
+        }
+
+        function updateSmoke() {
+            for (let i = smokePool.length - 1; i >= 0; i--) {
+                const s = smokePool[i];
+                s.userData.age += .016;
+                s.position.addScaledVector(s.userData.vel, 1);
+                const prog = s.userData.age / s.userData.life;
+                s.material.opacity = .5 * (1 - prog) * (1 - prog);
+                s.scale.setScalar(.5 + prog * 2.5);
+                if (s.userData.age >= s.userData.life) {
+                    scene.remove(s); s.geometry.dispose(); s.material.dispose();
+                    smokePool.splice(i, 1);
+                }
+            }
+        }
+
+        // ===== Camera names for button =====
+        const CAM_NAMES = ['Follow', 'Side', 'Aerial'];
+
+        // ===== Animation =====
+        function animate() {
+            requestAnimationFrame(animate);
+            if (playing) {
+                t += spd * spdMul;
+                if (t >= 1) { t = 1; playing = false; document.getElementById('btn-play').innerHTML = '&#9654; Play'; }
+            }
+
+            const pos = trackCurve.getPoint(t);
+            const ahead = trackCurve.getPoint(Math.min(t + .004, 1));
+            const tng = trackCurve.getTangent(t);
+
+            trainGroup.position.copy(pos);
+
+            // Yaw-only rotation (no tilt/roll) — project tangent to XZ plane
+            const flatTng = new THREE.Vector3(tng.x, 0, tng.z).normalize();
+            trainGroup.rotation.set(0, Math.atan2(flatTng.x, flatTng.z), 0);
+
+            // Headlight
+            const hl = scene.userData.headlight;
+            hl.position.copy(pos); hl.position.y += 2;
+            hl.target.position.set(ahead.x, ahead.y, ahead.z);
+            hl.target.updateMatrixWorld();
+
+            // Wheel spin
+            const wspin = spd * spdMul * 20;
+            (scene.userData.wheels || []).forEach(w => { w.rotation.y += wspin; });
+
+            // High speed train no smoke
+            updateSmoke();
+            updateCamera(pos, tng);
+            updateUI();
+            renderer.render(scene, camera);
+        }
+
+        function updateCamera(pos, tng) {
+            let target;
+            if (camMode === 0) {
+                const back = new THREE.Vector3(-tng.x * 18, 6, -tng.z * 18);
+                target = pos.clone().add(back);
+            } else if (camMode === 1) {
+                const perp = new THREE.Vector3(-tng.z, 0, tng.x).normalize().multiplyScalar(22);
+                target = pos.clone().add(perp).add(new THREE.Vector3(0, 5, 0));
+            } else {
+                target = new THREE.Vector3(pos.x, pos.y + 55, pos.z + 4);
+            }
+            camera.position.lerp(target, .06);
+            camera.lookAt(pos.x, pos.y + 1.5, pos.z);
+        }
+
+        function updateUI() {
+            const pct = Math.round(t * 100);
+            document.getElementById('p-fill').style.width = pct + '%';
+            document.getElementById('p-pct').textContent = pct + '%';
+            const pts = scene.userData.pts3d;
+            const tp = trackCurve.getPoint(t);
+            let closest = 0, minD = Infinity;
+            pts.forEach((p, i) => { const d = p.distanceTo(tp); if (d < minD) { minD = d; closest = i; } });
+            const st = STOPS[closest];
+            document.getElementById('s-name').textContent = st.place;
+            document.getElementById('s-time').textContent = st.time + ' • On track';
+            document.getElementById('bat-fill').style.width = st.bat + '%';
+            document.getElementById('bat-pct').textContent = st.bat + '%';
+        }
+
+        function onResize() {
+            camera.aspect = innerWidth / innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(innerWidth, innerHeight);
+        }
+
+        // ===== Controls =====
+        function togglePlay() {
+            if (t >= 1) { t = 0; playing = true; document.getElementById('btn-play').innerHTML = '&#9646;&#9646; Pause'; return; }
+            playing = !playing;
+            document.getElementById('btn-play').innerHTML = playing ? '&#9646;&#9646; Pause' : '&#9654; Play';
+        }
+        const SPEEDS = [1, 2, 5, 0.5];
+        const SLABELS = ['&#9889; 1x', '&#9889; 2x', '&#9889; 5x', '&#9889; .5x'];
+        let si = 0;
+        function toggleSpeed() { si = (si + 1) % 4; spdMul = SPEEDS[si]; document.getElementById('btn-speed').innerHTML = SLABELS[si]; }
+        function resetJourney() { t = 0; playing = true; document.getElementById('btn-play').innerHTML = '&#9646;&#9646; Pause'; }
+        function toggleCamera() { camMode = (camMode + 1) % 3; document.getElementById('btn-cam').textContent = '\uD83C\uDFA5 ' + CAM_NAMES[camMode]; }
+        function seekProgress(e) {
+            const r = e.currentTarget.getBoundingClientRect();
+            t = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+            playing = true; document.getElementById('btn-play').innerHTML = '&#9646;&#9646; Pause';
+        }
+
+        init();
+    </script>
+</body>
+
+</html>

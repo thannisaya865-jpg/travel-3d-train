@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Travel Map: Chiang Mai to Phitsanulok | Nara Oracle</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=IBM+Plex+Sans+Thai:wght@300;400;600&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --card-bg: rgba(22, 27, 34, 0.8);
+            --accent-color: #58a6ff;
+            --text-color: #c9d1d9;
+            --font-main: 'Inter', 'IBM Plex Sans Thai', sans-serif;
+        }
+
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-main);
+            overflow: hidden;
+        }
+
+        #map {
+            height: 100vh;
+            width: 100vw;
+            background: var(--bg-color);
+        }
+
+        .header {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            padding: 15px 25px;
+            border-radius: 12px;
+            border: 1px solid rgba(48, 54, 61, 0.8);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--accent-color);
+            letter-spacing: 0.5px;
+        }
+
+        .header p {
+            margin: 5px 0 0;
+            font-size: 0.85rem;
+            opacity: 0.8;
+        }
+
+        .footer {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: 1px solid rgba(48, 54, 61, 0.8);
+            font-size: 0.8rem;
+        }
+
+        /* Custom Popup Style */
+        .leaflet-popup-content-wrapper {
+            background: var(--bg-color);
+            color: var(--text-color);
+            border-radius: 8px;
+            border: 1px solid var(--accent-color);
+        }
+
+        .leaflet-popup-tip {
+            background: var(--bg-color);
+        }
+
+        .popup-info b {
+            color: var(--accent-color);
+        }
+
+        /* Dark Map Overlays */
+        .leaflet-container {
+            background: #1a1a1a !important;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header">
+        <h1>Travel Map 🚂</h1>
+        <p>Chiang Mai &rarr; Phitsanulok</p>
+    </div>
+
+    <div id="map"></div>
+
+    <div class="footer">
+        Born from Resilience | <b>Nara Oracle</b>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script>
+        const map = L.map('map', {
+            zoomControl: false
+        }).setView([18.0, 99.5], 8);
+
+        // Add Dark Theme Tiles
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+            subdomains: 'abcd',
+            maxZoom: 20
+        }).addTo(map);
+
+        L.control.zoom({
+            position: 'topright'
+        }).addTo(map);
+
+        const csvUrl = 'https://raw.githubusercontent.com/Soul-Brews-Studio/two-rivers-oracle/main/%CF%88/lab/github-pages-workshop/travel-phitsanulok.csv';
+
+        async function loadData() {
+            Papa.parse(csvUrl, {
+                download: true,
+                header: true,
+                dynamicTyping: true,
+                complete: function (results) {
+                    processData(results.data);
+                }
+            });
+        }
+
+        function processData(data) {
+            const points = data.filter(row => row.lat && row.lon);
+            const latlngs = points.map(p => [p.lat, p.lon]);
+
+            // Draw Polyline
+            L.polyline(latlngs, {
+                color: '#58a6ff',
+                weight: 3,
+                opacity: 0.6,
+                dashArray: '5, 10'
+            }).addTo(map);
+
+            // Add Markers for primary points (every 20 points + start and end)
+            points.forEach((p, index) => {
+                if (index === 0 || index === points.length - 1 || index % 20 === 0) {
+                    const marker = L.circleMarker([p.lat, p.lon], {
+                        radius: 6,
+                        fillColor: '#58a6ff',
+                        color: '#fff',
+                        weight: 1,
+                        opacity: 1,
+                        fillOpacity: 0.8
+                    }).addTo(map);
+
+                    const popupContent = `
+                        <div class="popup-info">
+                            <b>ที่นี่:</b> ${p.place || p.locality || 'ระบุไม่ได้'}<br>
+                            <b>แบตเตอรี่:</b> ${p.battery}% (${p.charging})<br>
+                            <b>เวลา:</b> ${p.updated}
+                        </div>
+                    `;
+                    marker.bindPopup(popupContent);
+                }
+            });
+
+            // Zoom to fit the entire route
+            if (latlngs.length > 0) {
+                map.fitBounds(L.polyline(latlngs).getBounds(), { padding: [50, 50] });
+            }
+        }
+
+        loadData();
+    </script>
+</body>
+
+</html>
