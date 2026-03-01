@@ -252,13 +252,7 @@
             <div id="mqtt-status" style="width: 12px; height: 12px; border-radius: 50%; background: #ef4444;"></div>
             <h2 style="font-weight: 900; letter-spacing: 1px;">ORACLE PET RACE</h2>
         </div>
-        <div id="leaderboard-panel" class="glass-panel" style="padding: 10px 25px; border-radius: 99px;">
-            <i class="fas fa-list-ol" style="color: var(--primary); margin-right: 10px;"></i>
-            <span id="rank-display">รอผู้เล่นเข้าสนาม...</span>
-        </div>
-        <div id="hof-container" style="color: #cbd5e1; font-size: 0.9rem;">
-            🏆 สถิติล่าสุด: <span id="hof-winners" style="color: white; font-weight: 700;">---</span>
-        </div>
+        <div id="hof-container" style="color: #cbd5e1;">ล่าสุด: <span id="hof-winners">---</span></div>
     </div>
 
     <div id="race-field">
@@ -266,20 +260,20 @@
         <!-- Lanes will be generated here -->
     </div>
 
-    <div class="instructions">กด [ SPACE BAR ] รัวๆ เพื่อเข้าเส้นชัย! 🚀</div>
+    <div class="instructions">กด [ SPACE BAR ] รัวๆ เพื่อวิ่ง! 🚀</div>
 
     <div id="win-overlay" class="win-overlay">
         <div class="win-card">
-            <h1 style="font-size: 4rem; margin-bottom: 10px;">🎉 ยินดีด้วย!</h1>
+            <h1 style="font-size: 4rem; margin-bottom: 10px;">🎉 คุณชนะแล้ว!</h1>
             <p id="winner-msg" style="font-size: 1.5rem; margin-bottom: 30px;"></p>
             <button class="start-btn" style="background: white; color: var(--accent);"
-                onclick="location.reload()">แข่งใหม่อีกรอบ</button>
+                onclick="location.reload()">เล่นอีกรอบ</button>
         </div>
     </div>
 
     <script>
         const BROKER_URL = 'wss://dustboy-wss-bridge.laris.workers.dev/mqtt';
-        const BASE_TOPIC = 'nara/pets/v3'; // Bump version for fresh data
+        const BASE_TOPIC = 'nara/pets/v1';
         let CLIENT_ID = 'Player_' + Math.floor(Math.random() * 10000);
 
         let myData = {
@@ -292,7 +286,8 @@
         };
 
         let players = {};
-        let aiBots = [];
+        let bots = [];
+        let hofData = [];
         let client;
 
         function selectEmoji(emoji, el) {
@@ -308,45 +303,45 @@
             myData.name = name;
             document.getElementById('selection-screen').style.display = 'none';
 
-            spawnBots();
             initMQTT();
-            startBotLogic();
+            spawnBots(); // เริ่มบอท
         }
 
         function spawnBots() {
-            const botNames = ['AI_Tester_1', 'AI_Tester_2', 'AI_Tester_3', 'AI_Tester_4', 'AI_Tester_5'];
-            const botEmojis = ['🏎️', '🦄', '🦖', '🐎', '🐰'];
-            aiBots = botNames.map((name, i) => ({
-                id: 'Bot_' + i,
+            const botNames = ['AI_Tester_1', 'AI_Tester_2', 'AI_Tester_3'];
+            const botEmojis = ['🐕', '🐎', '🦖'];
+
+            bots = botNames.map((name, i) => ({
+                id: 'Bot_' + Math.floor(Math.random() * 10000),
                 name: name,
-                emoji: botEmojis[i],
+                emoji: botEmojis[i] || '🤖',
                 dist: 0,
                 win: false,
                 isBot: true,
-                ts: Date.now()
+                ts: Date.now(),
+                speed: 0.5 + Math.random() * 1.0
             }));
-        }
 
-        function startBotLogic() {
+            // Bots movement loop
             setInterval(() => {
-                if (myData.win) return;
+                if (myData.win) return; // Stop bots if user won 
 
-                aiBots.forEach(bot => {
+                bots.forEach(bot => {
                     if (!bot.win) {
-                        // Random movement logic: Bots have different speeds
-                        const chance = 0.5 + (Math.random() * 0.4);
-                        if (Math.random() > chance) {
-                            bot.dist += (Math.random() * 2) + 0.5;
-                            if (bot.dist >= 90) {
-                                bot.dist = 90;
-                                bot.win = true;
-                            }
-                            bot.ts = Date.now();
+                        bot.dist += Math.random() * bot.speed;
+                        if (bot.dist >= 90) {
+                            bot.dist = 90;
+                            bot.win = true;
+                        }
+                        bot.ts = Date.now();
+                        // Sync bot to others
+                        if (client && client.connected) {
+                            client.publish(`${BASE_TOPIC}/players/${bot.id}`, JSON.stringify(bot));
                         }
                     }
                 });
                 render();
-            }, 200);
+            }, 300);
         }
 
         function initMQTT() {
@@ -363,24 +358,36 @@
                 try {
                     const data = JSON.parse(msg.toString());
                     if (topic === `${BASE_TOPIC}/hof`) {
-                        updateHOF(data);
-                    } else if (data.id !== CLIENT_ID) {
-                        players[data.id] = data;
-                        render();
+                        hofData = data;
+                        updateHOFUI();
+                    } else {
+                        // Don't overwrite local bots if receiving them back
+                        if (!data.isBot || !bots.find(b => b.id === data.id)) {
+                            players[data.id] = data;
+                            render();
+                        }
                     }
                 } catch (e) { }
             });
         }
 
+        function updateHOFUI() {
+            const container = document.getElementById('hof-winners');
+            // Show top 3 all-time winners
+            container.innerHTML = hofData.slice(-3).reverse().map(w => `<span>${w}</span>`).join(' • ');
+        }
+
         function sync() {
             myData.ts = Date.now();
-            client.publish(`${BASE_TOPIC}/players/${CLIENT_ID}`, JSON.stringify(myData));
+            if (client && client.connected) {
+                client.publish(`${BASE_TOPIC}/players/${CLIENT_ID}`, JSON.stringify(myData));
+            }
         }
 
         window.addEventListener('keydown', (e) => {
-            if (e.code === 'Space' && !myData.win && document.getElementById('selection-screen').style.display === 'none') {
+            if (e.code === 'Space' && !myData.win) {
                 e.preventDefault();
-                myData.dist += 2.5;
+                myData.dist += 2;
                 if (myData.dist >= 90) {
                     myData.dist = 90;
                     myData.win = true;
@@ -393,52 +400,41 @@
 
         function showWin() {
             document.getElementById('win-overlay').style.display = 'flex';
-            document.getElementById('winner-msg').innerText = `${myData.emoji} ${myData.name} เข้าเส้นชัยสำเร็จ!`;
+            document.getElementById('winner-msg').innerText = `${myData.emoji} ${myData.name} เข้าเส้นชัยเป็นที่ 1!`;
 
-            // Retain Winner in HOF
-            client.publish(`${BASE_TOPIC}/hof`, JSON.stringify([`${myData.name}`]), { retain: true });
-        }
-
-        function updateHOF(winners) {
-            document.getElementById('hof-winners').innerText = winners.slice(-3).join(' • ');
+            // Persistent HOF logic
+            const winnerEntry = `${myData.emoji} ${myData.name}`;
+            if (!hofData.includes(winnerEntry)) {
+                hofData.push(winnerEntry);
+                if (hofData.length > 15) hofData.shift();
+                if (client && client.connected) {
+                    client.publish(`${BASE_TOPIC}/hof`, JSON.stringify(hofData), { retain: true });
+                }
+            }
         }
 
         function render() {
             const field = document.getElementById('race-field');
             const now = Date.now();
 
-            // Cleanup stale players
+            // Cleanup stale
             Object.keys(players).forEach(id => {
                 if (now - players[id].ts > 10000) delete players[id];
             });
 
-            // Combine Me + Bots + Other Real Players
-            const all = [
-                myData,
-                ...aiBots,
-                ...Object.values(players)
-            ];
-
-            // Sort by distance for Rank
-            const sorted = [...all].sort((a, b) => b.dist - a.dist);
-
-            // Update Top Bar Ranking (Show top 6)
-            const rankHtml = sorted.slice(0, 6).map((p, i) =>
-                `<span style="margin-right: 15px; color: ${p.id === CLIENT_ID ? 'yellow' : 'white'}">#${i + 1} ${p.emoji} ${p.name.split('_').pop()} (${Math.floor(p.dist)}%)</span>`
-            ).join('');
-            document.getElementById('rank-display').innerHTML = rankHtml;
-
-            // Render Tracks
+            const all = [myData, ...bots, ...Object.values(players).filter(p => p.id !== CLIENT_ID && !p.isBot)];
             field.innerHTML = '<div class="finish-line"></div>';
-            sorted.forEach(p => {
+
+            // Rank by distance
+            all.sort((a, b) => b.dist - a.dist);
+
+            all.forEach(p => {
                 const lane = document.createElement('div');
                 lane.className = 'lane';
                 lane.innerHTML = `
                     <div class="pet" style="left: ${p.dist}%">
                         ${p.emoji}
-                        <div class="pet-name" style="${p.id === CLIENT_ID ? 'border: 1px solid yellow;' : ''}">
-                            ${p.name} ${p.isBot ? '(AI)' : ''}
-                        </div>
+                        <div class="pet-name">${p.name} ${p.isBot ? '(AI)' : ''}</div>
                     </div>
                 `;
                 field.appendChild(lane);
