@@ -10,6 +10,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- MQTT.js -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <!-- Google Fonts -->
     <link
         href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Sarabun:wght@300;500;700&display=swap"
@@ -52,6 +54,8 @@
             display: flex;
             flex-direction: column;
             gap: 2rem;
+            opacity: 0;
+            transition: opacity 1s ease-in-out;
         }
 
         header {
@@ -180,6 +184,11 @@
             background: rgba(255, 255, 255, 0.03);
             border-radius: 8px;
             border-left: 4px solid transparent;
+            transition: background 0.3s;
+        }
+
+        .station-item.flash {
+            background: rgba(63, 185, 80, 0.2);
         }
 
         .station-name {
@@ -206,6 +215,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
+            transition: opacity 1s;
         }
 
         .spinner {
@@ -229,13 +239,15 @@
 
     <div id="loader">
         <div class="spinner"></div>
-        <p style="margin-top: 1rem; color: #00f2fe; font-family: Orbitron;">CONNECTING DUSTBOY SENSORS...</p>
+        <p style="margin-top: 1rem; color: #00f2fe; font-family: Orbitron;">CONNECTING DUSTBOY MQTT STREAM...</p>
+        <p id="loader-sub" style="margin-top: 0.5rem; color: #8b949e; font-size: 0.9rem;">Waiting for incoming data
+            packets...</p>
     </div>
 
     <!-- 3D Canvas -->
     <div id="webgl-container"></div>
 
-    <div class="dashboard-wrapper" style="display: none;" id="app">
+    <div class="dashboard-wrapper" id="app">
         <header>
             <h1>DUSTBOY INTELLIGENCE</h1>
             <p class="subtitle">Real-time PM2.5 Volumetric Simulation & Analysis</p>
@@ -254,15 +266,16 @@
             </div>
             <div class="glass-panel stat-card">
                 <div class="stat-label">Total Active Nodes</div>
-                <div class="stat-value" id="total-nodes" style="color: #4facfe;">--</div>
-                <div style="font-size:0.85rem; color:#8b949e; margin-top:5px;">Live Sensors</div>
+                <div class="stat-value" id="total-nodes" style="color: #4facfe;">0</div>
+                <div id="conn-status" style="font-size:0.85rem; color:#8b949e; margin-top:5px;">Live Sensors (Stream
+                    Active)</div>
             </div>
         </section>
 
         <section class="main-content">
             <!-- Chart Panel -->
             <div class="glass-panel">
-                <h2 class="panel-title">TOP 10 CRITICAL ZONES</h2>
+                <h2 class="panel-title">TOP 10 CRITICAL ZONES (LIVE STREAM)</h2>
                 <div class="chart-container">
                     <canvas id="mainChart"></canvas>
                 </div>
@@ -278,15 +291,12 @@
         </section>
 
         <footer style="text-align: center; color: rgba(255,255,255,0.3); font-size: 0.8rem; margin-top: 2rem;">
-            Data provided by CMU CCDC DustBoy Open API | Visualization by Nara Oracle
+            Data streaming via MQTT DustBoy Bridge | Visualization by Nara Oracle
         </footer>
     </div>
 
     <script>
-        // --- 1. DATA FETCHING & PROCESSING ---
-        const API_URL = 'https://open-api.cmuccdc.org/aqic/dustboy';
-        let rawData = [];
-
+        // --- 0. UTILS ---
         function getAQIColor(pm25) {
             if (pm25 <= 15) return '#00e400'; // Good (Green)
             if (pm25 <= 25) return '#ffff00'; // Moderate (Yellow)
@@ -295,77 +305,159 @@
             return '#8f3f97'; // Very Unhealthy / Haz (Purple)
         }
 
-        async function initDashboard() {
+        // --- 1. MQTT DATA FETCHING ---
+        const BROKER_URL = 'wss://dustboy-wss-bridge.laris.workers.dev/mqtt';
+        const TOPIC = 'DUSTBOY/+/+/+/status';
+
+        const sensors = new Map();
+        let chartInstance = null;
+        let isAppVisible = false;
+
+        // Three.js instances mapped for dynamic updates
+        let particleSystemRef = null;
+        let materialRef = null;
+
+        function connectMQTT() {
+            const client = mqtt.connect(BROKER_URL);
+
+            client.on('connect', () => {
+                document.getElementById('conn-status').innerText = 'Connected - STREAM ACTIVE';
+                document.getElementById('conn-status').style.color = '#3fb950';
+                client.subscribe(TOPIC);
+            });
+
+            client.on('message', (topic, message) => {
+                const s = parseMsg(topic, message);
+                if (!s || s.pm25 === undefined) return;
+
+                sensors.set(s.id, s);
+                updateDashboard();
+
+                // Show dashboard after receiving first few packets
+                if (!isAppVisible && sensors.size >= 3) {
+                    isAppVisible = true;
+                    document.getElementById('loader').style.opacity = '0';
+                    setTimeout(() => {
+                        document.getElementById('loader').style.display = 'none';
+                        document.getElementById('app').style.opacity = '1';
+                    }, 1000);
+                }
+            });
+
+            client.on('error', (e) => {
+                console.error("MQTT Error:", e);
+                document.getElementById('conn-status').innerText = 'Connection Error';
+                document.getElementById('conn-status').style.color = '#f87171';
+            });
+
+            // Timeout safety to show app if it takes too long to get 3 packets
+            setTimeout(() => {
+                if (!isAppVisible) {
+                    isAppVisible = true;
+                    document.getElementById('loader').style.opacity = '0';
+                    setTimeout(() => {
+                        document.getElementById('loader').style.display = 'none';
+                        document.getElementById('app').style.opacity = '1';
+                    }, 1000);
+                }
+            }, 5000);
+        }
+
+        function parseMsg(topic, raw) {
+            const msg = raw.toString();
             try {
-                const res = await fetch(API_URL);
-                const data = await res.json();
+                const obj = JSON.parse(msg);
+                const parts = topic.split('/');
+                const isModelT = parts[1] === 'Model-T';
+                const id = isModelT ? (obj.nickname || parts[2]) : (parts[3] || parts[2] || 'unknown');
 
-                // Filter valid data
-                rawData = data.filter(d => d.pm25 !== null && !isNaN(d.pm25));
+                let pm25, name;
+                if (isModelT) {
+                    pm25 = obj.pm2_5;
+                    name = obj.nickname || id;
+                } else if (obj.d) {
+                    const d = obj.d;
+                    pm25 = d.pm2_5;
+                    name = d.myName || id;
+                } else {
+                    pm25 = obj.pm2_5;
+                    name = id;
+                }
+                return { id, name, pm25: parseFloat(pm25), ts: Date.now() };
+            } catch { return null; }
+        }
 
-                // Process Metrics
-                const totalNodes = rawData.length;
-                let sumPM = 0;
-                let maxPM = -1;
-                let maxLoc = "";
+        // Setup debouncing for UI updates so we don't lag when many messages arrive
+        let updateTimeout = null;
+        function updateDashboard() {
+            if (updateTimeout) return;
+            updateTimeout = setTimeout(() => {
+                renderUI();
+                updateTimeout = null;
+            }, 500); // Update maximum twice a second
+        }
 
-                rawData.forEach(d => {
-                    sumPM += d.pm25;
-                    if (d.pm25 > maxPM) {
-                        maxPM = d.pm25;
-                        maxLoc = d.dustboy_name_en || d.dustboy_name;
-                    }
-                });
+        function renderUI() {
+            const arr = Array.from(sensors.values());
+            if (arr.length === 0) return;
 
-                const avgPM = Math.round(sumPM / totalNodes);
+            // Process Metrics
+            let sumPM = 0;
+            let maxPM = -1;
+            let maxLoc = "";
 
-                // Update UI Stats
-                document.getElementById('total-nodes').innerText = totalNodes;
+            arr.forEach(d => {
+                sumPM += d.pm25;
+                if (d.pm25 > maxPM) {
+                    maxPM = d.pm25;
+                    maxLoc = d.name;
+                }
+            });
 
-                const avgEl = document.getElementById('avg-pm');
-                avgEl.innerText = avgPM;
-                avgEl.style.color = getAQIColor(avgPM);
-                document.getElementById('avg-status').innerText = `AQI Status Tone: ${avgPM > 37.5 ? 'CRITICAL' : (avgPM > 25 ? 'WARNING' : 'NORMAL')}`;
+            const avgPM = Math.round(sumPM / arr.length);
 
-                const maxEl = document.getElementById('max-pm');
-                maxEl.innerText = maxPM;
-                maxEl.style.color = getAQIColor(maxPM);
-                document.getElementById('max-location').innerText = '📍 ' + maxLoc;
+            // Update UI Stats
+            document.getElementById('total-nodes').innerText = arr.length;
 
-                // Sort for Chart & List
-                const sortedData = [...rawData].sort((a, b) => b.pm25 - a.pm25);
+            const avgEl = document.getElementById('avg-pm');
+            avgEl.innerText = avgPM;
+            avgEl.style.color = getAQIColor(avgPM);
+            document.getElementById('avg-status').innerText = `AQI Status Tone: ${avgPM > 37.5 ? 'CRITICAL' : (avgPM > 25 ? 'WARNING' : 'NORMAL')}`;
 
-                renderChart(sortedData.slice(0, 10));
-                renderList(sortedData);
+            const maxEl = document.getElementById('max-pm');
+            maxEl.innerText = Math.round(maxPM);
+            maxEl.style.color = getAQIColor(maxPM);
+            document.getElementById('max-location').innerText = '📍 ' + maxLoc;
 
-                // Hide loader, show app
-                document.getElementById('loader').style.opacity = '0';
-                setTimeout(() => {
-                    document.getElementById('loader').style.display = 'none';
-                    document.getElementById('app').style.display = 'flex';
-                    // Initialize Three.js after data is ready to set particle colors based on average
-                    initThreeJS(avgPM, maxPM);
-                }, 500);
+            // Sort logic
+            arr.sort((a, b) => b.pm25 - a.pm25);
 
-            } catch (e) {
-                console.error(e);
-                document.getElementById('loader').innerHTML = '<h3 style="color:red">ERROR LOADING CONNECTION</h3>';
-            }
+            renderChart(arr.slice(0, 10));
+            renderList(arr);
+
+            // Update 3D Background dynamic intensity
+            updateThreeJSDynamics(avgPM, maxPM);
         }
 
         // --- 2. CHART.JS ---
         function renderChart(topData) {
             const ctx = document.getElementById('mainChart').getContext('2d');
 
-            const labels = topData.map(d => {
-                let name = d.dustboy_name_en || d.dustboy_name;
-                return name.split(',')[0].substring(0, 20); // Shorten names
-            });
+            const labels = topData.map(d => d.name.split(',')[0].substring(0, 20));
             const values = topData.map(d => d.pm25);
             const bgColors = values.map(v => getAQIColor(v) + 'AA');
             const borderColors = values.map(v => getAQIColor(v));
 
-            new Chart(ctx, {
+            if (chartInstance) {
+                chartInstance.data.labels = labels;
+                chartInstance.data.datasets[0].data = values;
+                chartInstance.data.datasets[0].backgroundColor = bgColors;
+                chartInstance.data.datasets[0].borderColor = borderColors;
+                chartInstance.update();
+                return;
+            }
+
+            chartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: labels,
@@ -382,6 +474,7 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     indexAxis: 'y', // Horizontal bar chart
+                    animation: { duration: 500 },
                     scales: {
                         x: {
                             grid: { color: 'rgba(255,255,255,0.05)' },
@@ -410,30 +503,27 @@
         // --- 3. STATION LIST ---
         function renderList(sortedData) {
             const container = document.getElementById('station-list');
-            container.innerHTML = '';
-
-            sortedData.forEach(d => {
+            // Instead of total replacement, we optimize for flashing effect but to keep it simple, we replace innerHTML
+            container.innerHTML = sortedData.map(d => {
                 const color = getAQIColor(d.pm25);
-                const div = document.createElement('div');
-                div.className = 'station-item';
-                div.style.borderLeftColor = color;
-
-                div.innerHTML = `
-                    <div class="station-name">${d.dustboy_name_en || d.dustboy_name}</div>
-                    <div class="station-pm" style="color: ${color};">${d.pm25} <span style="font-size:0.6rem; color:#666;">µg/m³</span></div>
+                const age = Date.now() - d.ts;
+                // If it updated within the last 1 second, make it flash slightly
+                const isRecent = age < 1500 ? 'flash' : '';
+                return `
+                    <div class="station-item ${isRecent}" style="border-left-color: ${color};">
+                        <div class="station-name">${d.name}</div>
+                        <div class="station-pm" style="color: ${color};">${(d.pm25).toFixed(1)} <span style="font-size:0.6rem; color:#666;">µg/m³</span></div>
+                    </div>
                 `;
-                container.appendChild(div);
-            });
+            }).join('');
         }
 
         // --- 4. THREE.JS PARTICLE BACKGROUND ---
-        function initThreeJS(avgPM, maxPM) {
+        function initThreeJS() {
             const container = document.getElementById('webgl-container');
             const scene = new THREE.Scene();
 
-            // Fog effect based on average PM
-            const fogDensity = Math.min(0.015 + (avgPM * 0.0002), 0.05);
-            scene.fog = new THREE.FogExp2(0x050505, fogDensity);
+            scene.fog = new THREE.FogExp2(0x050505, 0.02); // Initial baseline fog
 
             const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.z = 30;
@@ -443,67 +533,60 @@
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             container.appendChild(renderer.domElement);
 
-            // Particles Geometry
-            // Number of particles scales with maxPM to simulate density
-            const particleCount = Math.min(Math.floor(maxPM * 50) + 1000, 15000);
+            // Particles Geometry Initializer (start with 2000, color neutral)
+            const particleCount = 2000;
             const geometry = new THREE.BufferGeometry();
             const positions = new Float32Array(particleCount * 3);
             const colors = new Float32Array(particleCount * 3);
             const sizes = new Float32Array(particleCount);
 
-            const colorBase = new THREE.Color(getAQIColor(avgPM));
-            const colorRed = new THREE.Color(0xff0000);
+            const initialColor = new THREE.Color('#4facfe');
 
             for (let i = 0; i < particleCount; i++) {
-                // Spherical volume distribution
                 const radius = 10 + Math.random() * 80;
                 const theta = Math.random() * Math.PI * 2;
                 const phi = Math.acos((Math.random() * 2) - 1);
 
                 positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
-                positions[i * 3 + 1] = (Math.random() - 0.5) * 100; // Cylindrical bias
+                positions[i * 3 + 1] = (Math.random() - 0.5) * 100;
                 positions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
 
-                // Mix colors (base color + chance of red if maxPM is high)
-                const c = new THREE.Color().copy(colorBase);
-                if (Math.random() < (maxPM / 200)) c.lerp(colorRed, Math.random());
+                colors[i * 3] = initialColor.r;
+                colors[i * 3 + 1] = initialColor.g;
+                colors[i * 3 + 2] = initialColor.b;
 
-                colors[i * 3] = c.r;
-                colors[i * 3 + 1] = c.g;
-                colors[i * 3 + 2] = c.b;
-
-                sizes[i] = Math.random() * 2;
+                sizes[i] = Math.random() * 2; // base size
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
             geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-            // Custom shader material for glowing round points
-            const material = new THREE.ShaderMaterial({
+            materialRef = new THREE.ShaderMaterial({
                 uniforms: {
-                    time: { value: 0.0 }
+                    time: { value: 0.0 },
+                    intensity: { value: 1.0 } // Used to scale particle activity
                 },
                 vertexShader: `
                     attribute float size;
                     attribute vec3 color;
                     varying vec3 vColor;
                     uniform float time;
+                    uniform float intensity;
                     void main() {
                         vColor = color;
                         vec3 pos = position;
-                        // Wavy motion based on time
-                        pos.x += sin(time * 0.5 + pos.y * 0.05) * 2.0;
-                        pos.y += cos(time * 0.3 + pos.x * 0.05) * 2.0;
+                        // Activity scales based on intensity multiplier (avg PM)
+                        pos.x += sin(time * 0.5 * intensity + pos.y * 0.05) * 2.0 * intensity;
+                        pos.y += cos(time * 0.3 * intensity + pos.x * 0.05) * 2.0 * intensity;
                         vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-                        gl_PointSize = size * (150.0 / -mvPosition.z);
+                        gl_PointSize = size * (150.0 / -mvPosition.z) * max(1.0, intensity);
                         gl_Position = projectionMatrix * mvPosition;
                     }
                 `,
                 fragmentShader: `
                     varying vec3 vColor;
                     void main() {
-                        // Make point circular with soft edge
                         vec2 xy = gl_PointCoord.xy - vec2(0.5);
                         float ll = length(xy);
                         if(ll > 0.5) discard;
@@ -516,8 +599,8 @@
                 blending: THREE.AdditiveBlending
             });
 
-            const particleSystem = new THREE.Points(geometry, material);
-            scene.add(particleSystem);
+            particleSystemRef = new THREE.Points(geometry, materialRef);
+            scene.add(particleSystemRef);
 
             // Mouse interaction
             let mouseX = 0;
@@ -527,19 +610,17 @@
                 mouseY = (e.clientY - window.innerHeight / 2) * 0.05;
             });
 
-            // Animation Loop
             const clock = new THREE.Clock();
             function animate() {
                 requestAnimationFrame(animate);
 
                 const dt = clock.getDelta();
-                material.uniforms.time.value += dt;
+                materialRef.uniforms.time.value += dt;
 
-                // Rotate entire system slowly based on PM levels (faster = worse air)
-                const speed = 0.05 + (avgPM * 0.001);
-                particleSystem.rotation.y += dt * speed;
+                // Rotate entire system slowly 
+                // The base angular velocity is augmented by dynamic speed multiplier later
+                particleSystemRef.rotation.y += dt * (particleSystemRef.userData.speed || 0.05);
 
-                // Camera swing towards mouse
                 camera.position.x += (mouseX - camera.position.x) * 0.05;
                 camera.position.y += (-mouseY - camera.position.y) * 0.05;
                 camera.lookAt(scene.position);
@@ -549,7 +630,6 @@
 
             animate();
 
-            // Resize handler
             window.addEventListener('resize', () => {
                 camera.aspect = window.innerWidth / window.innerHeight;
                 camera.updateProjectionMatrix();
@@ -557,8 +637,47 @@
             });
         }
 
-        // Start
-        window.onload = initDashboard;
+        // --- 5. DYNAMIC THREE.JS UPDATES ---
+        function updateThreeJSDynamics(avgPM, maxPM) {
+            if (!particleSystemRef || !materialRef) return;
+
+            // 1. Modulate rotation speed and particle wiggle intensity
+            particleSystemRef.userData.speed = 0.05 + (avgPM * 0.001);
+            materialRef.uniforms.intensity.value = 1.0 + (avgPM / 50.0);
+
+            // 2. Modulate Colors based on avg and max
+            const targetBaseColor = new THREE.Color(getAQIColor(avgPM));
+            const targetRed = new THREE.Color(0xff0000);
+
+            const positions = particleSystemRef.geometry.attributes.position.array;
+            const colors = particleSystemRef.geometry.attributes.color.array;
+            const count = colors.length / 3;
+
+            // Re-calc colors to simulate density based on maxPM severity
+            // We just update the array and set needsUpdate = true
+            for (let i = 0; i < count; i++) {
+                const c = new THREE.Color().copy(targetBaseColor);
+                if (Math.random() < (maxPM / 150)) {
+                    // Inject hazardous particles (red) if maxPM is high
+                    c.lerp(targetRed, Math.random());
+                } else if (Math.random() < 0.2) {
+                    // Small variance to make it look active
+                    c.multiplyScalar(0.8 + Math.random() * 0.4);
+                }
+
+                // Extremely simple "lerp" towards the new color to make it smooth over intervals
+                colors[i * 3] += (c.r - colors[i * 3]) * 0.1;
+                colors[i * 3 + 1] += (c.g - colors[i * 3 + 1]) * 0.1;
+                colors[i * 3 + 2] += (c.b - colors[i * 3 + 2]) * 0.1;
+            }
+            particleSystemRef.geometry.attributes.color.needsUpdate = true;
+        }
+
+        // Run setup
+        window.onload = () => {
+            initThreeJS();
+            connectMQTT();
+        };
     </script>
 
 </body>
