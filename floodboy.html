@@ -332,12 +332,14 @@
         </div>
     </div>
 
-    <!-- Viem.js ESM Build -->
-    <script type="module">
-        console.log("Script starting...");
-        import { createPublicClient, http, parseAbiItem } from 'https://esm.sh/viem@2.21.31';
+    <script>console.log("Page loaded, starting script initialization...");</script>
 
-        console.log("Viem imported successfully");
+    <!-- Viem.js ESM Build with Bundling -->
+    <script type="module">
+        console.log("Module script starting...");
+        import { createPublicClient, http, parseAbiItem } from 'https://esm.sh/viem@2.21.31?bundle';
+
+        console.log("Viem (Bundled) imported successfully");
 
         // Chain Configuration
         const jibchain = {
