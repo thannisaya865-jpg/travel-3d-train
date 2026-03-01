@@ -252,11 +252,13 @@
             <div id="mqtt-status" style="width: 12px; height: 12px; border-radius: 50%; background: #ef4444;"></div>
             <h2 style="font-weight: 900; letter-spacing: 1px;">ORACLE PET RACE</h2>
         </div>
-        <div id="champ-container"
-            style="color: #fbbf24; font-weight: 700; background: rgba(251, 191, 36, 0.1); padding: 5px 15px; border-radius: 99px; border: 1px solid rgba(251, 191, 36, 0.3);">
-            👑 เจ้าแห่งสนาม: <span id="current-champ">กำลังโหลด...</span>
+        <div id="leaderboard-panel" class="glass-panel" style="padding: 10px 25px; border-radius: 99px;">
+            <i class="fas fa-list-ol" style="color: var(--primary); margin-right: 10px;"></i>
+            <span id="rank-display">รอผู้เล่นเข้าสนาม...</span>
         </div>
-        <div id="hof-container" style="color: #cbd5e1;">ล่าสุด: <span id="hof-winners">---</span></div>
+        <div id="hof-container" style="color: #cbd5e1; font-size: 0.9rem;">
+            🏆 สถิติล่าสุด: <span id="hof-winners" style="color: white; font-weight: 700;">---</span>
+        </div>
     </div>
 
     <div id="race-field">
@@ -264,20 +266,20 @@
         <!-- Lanes will be generated here -->
     </div>
 
-    <div class="instructions">กด [ SPACE BAR ] รัวๆ เพื่อวิ่งแข่งกับ AI! 🚀</div>
+    <div class="instructions">กด [ SPACE BAR ] รัวๆ เพื่อเข้าเส้นชัย! 🚀</div>
 
     <div id="win-overlay" class="win-overlay">
         <div class="win-card">
-            <h1 style="font-size: 4rem; margin-bottom: 10px;">🎉 ชนะแล้ว!</h1>
+            <h1 style="font-size: 4rem; margin-bottom: 10px;">🎉 ยินดีด้วย!</h1>
             <p id="winner-msg" style="font-size: 1.5rem; margin-bottom: 30px;"></p>
             <button class="start-btn" style="background: white; color: var(--accent);"
-                onclick="location.reload()">เล่นอีกรอบ</button>
+                onclick="location.reload()">แข่งใหม่อีกรอบ</button>
         </div>
     </div>
 
     <script>
         const BROKER_URL = 'wss://dustboy-wss-bridge.laris.workers.dev/mqtt';
-        const BASE_TOPIC = 'nara/pets/v1';
+        const BASE_TOPIC = 'nara/pets/v2'; // Bump version to clear old bot data
         let CLIENT_ID = 'Player_' + Math.floor(Math.random() * 10000);
 
         let myData = {
@@ -290,7 +292,6 @@
         };
 
         let players = {};
-        let aiBots = [];
         let client;
 
         function selectEmoji(emoji, el) {
@@ -306,42 +307,7 @@
             myData.name = name;
             document.getElementById('selection-screen').style.display = 'none';
 
-            spawnBots();
             initMQTT();
-            startBotLogic();
-        }
-
-        function spawnBots() {
-            const botNames = ['AI_Tester_1', 'AI_Tester_2', 'AI_Tester_3'];
-            const botEmojis = ['🏎️', '🦄', '🦖'];
-            aiBots = botNames.map((name, i) => ({
-                id: 'Bot_' + i,
-                name: name,
-                emoji: botEmojis[i],
-                dist: 0,
-                win: false,
-                isBot: true,
-                ts: Date.now()
-            }));
-        }
-
-        function startBotLogic() {
-            setInterval(() => {
-                aiBots.forEach(bot => {
-                    if (!bot.win && !myData.win) {
-                        // Random movement for bots
-                        if (Math.random() > 0.6) {
-                            bot.dist += Math.floor(Math.random() * 3) + 1;
-                            if (bot.dist >= 90) {
-                                bot.dist = 90;
-                                bot.win = true;
-                            }
-                            bot.ts = Date.now();
-                        }
-                    }
-                });
-                render();
-            }, 300);
         }
 
         function initMQTT() {
@@ -351,20 +317,19 @@
                 document.getElementById('mqtt-status').style.background = '#10b981';
                 client.subscribe(`${BASE_TOPIC}/players/+`);
                 client.subscribe(`${BASE_TOPIC}/hof`);
-                client.subscribe(`${BASE_TOPIC}/champ`);
                 sync();
             });
 
             client.on('message', (topic, msg) => {
-                const data = JSON.parse(msg.toString());
-                if (topic === `${BASE_TOPIC}/hof`) {
-                    document.getElementById('hof-winners').innerText = data.join(' • ');
-                } else if (topic === `${BASE_TOPIC}/champ`) {
-                    document.getElementById('current-champ').innerText = data.name || "ยังไม่มี";
-                } else {
-                    players[data.id] = data;
-                    render();
-                }
+                try {
+                    const data = JSON.parse(msg.toString());
+                    if (topic === `${BASE_TOPIC}/hof`) {
+                        updateHOF(data);
+                    } else {
+                        players[data.id] = data;
+                        render();
+                    }
+                } catch (e) { }
             });
         }
 
@@ -374,9 +339,9 @@
         }
 
         window.addEventListener('keydown', (e) => {
-            if (e.code === 'Space' && !myData.win) {
+            if (e.code === 'Space' && !myData.win && document.getElementById('selection-screen').style.display === 'none') {
                 e.preventDefault();
-                myData.dist += 2;
+                myData.dist += 2.5; // Slightly faster feel
                 if (myData.dist >= 90) {
                     myData.dist = 90;
                     myData.win = true;
@@ -389,13 +354,14 @@
 
         function showWin() {
             document.getElementById('win-overlay').style.display = 'flex';
-            document.getElementById('winner-msg').innerText = `${myData.emoji} ${myData.name} เข้าเส้นชัยเป็นที่ 1!`;
+            document.getElementById('winner-msg').innerText = `${myData.emoji} ${myData.name} เข้าเส้นชัยสำเร็จ!`;
 
             // Retain Winner in HOF
-            client.publish(`${BASE_TOPIC}/hof`, JSON.stringify([`${myData.emoji} ${myData.name}`]), { retain: true });
+            client.publish(`${BASE_TOPIC}/hof`, JSON.stringify([`${myData.name}`]), { retain: true });
+        }
 
-            // Update All-time Champion
-            client.publish(`${BASE_TOPIC}/champ`, JSON.stringify({ name: `${myData.emoji} ${myData.name}`, ts: Date.now() }), { retain: true });
+        function updateHOF(winners) {
+            document.getElementById('hof-winners').innerText = winners.slice(-3).join(' • ');
         }
 
         function render() {
@@ -407,23 +373,25 @@
                 if (now - players[id].ts > 10000) delete players[id];
             });
 
-            // Combine all: Me, Bots, and other Players
-            const all = [
-                myData,
-                ...aiBots,
-                ...Object.values(players).filter(p => p.id !== CLIENT_ID)
-            ];
+            // Combine and Sort for Ranking
+            const all = [myData, ...Object.values(players).filter(p => p.id !== CLIENT_ID)];
+            const sorted = [...all].sort((a, b) => b.dist - a.dist);
 
-            // Sort by distance to show rank (though they are in lanes)
+            // Update Ranking Display
+            const rankHtml = sorted.slice(0, 3).map((p, i) =>
+                `<span style="margin-right: 15px;">#${i + 1} ${p.emoji} ${p.name} (${Math.floor(p.dist)}%)</span>`
+            ).join('');
+            document.getElementById('rank-display').innerHTML = rankHtml;
+
+            // Render Tracks
             field.innerHTML = '<div class="finish-line"></div>';
-
-            all.forEach(p => {
+            sorted.forEach(p => {
                 const lane = document.createElement('div');
                 lane.className = 'lane';
                 lane.innerHTML = `
                     <div class="pet" style="left: ${p.dist}%">
                         ${p.emoji}
-                        <div class="pet-name">${p.name} ${p.isBot ? '(AI)' : ''}</div>
+                        <div class="pet-name">${p.name}</div>
                     </div>
                 `;
                 field.appendChild(lane);
